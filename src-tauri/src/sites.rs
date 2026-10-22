@@ -28,6 +28,33 @@ pub fn is_site_enabled(settings: &serde_json::Value, site_id: &str) -> bool {
         .is_none_or(|ids| ids.iter().any(|value| value.as_str() == Some(site_id)))
 }
 
+/// 在线来源展示顺序（`global.siteOrder`，设置页拖拽写入的插件 id 有序数组）。
+///
+/// 插件目录枚举顺序在 APFS 上不稳定，菜单、⌘1~7 快捷键与设置页列表都必须
+/// 经过这里排序：已列出的 id 按列表位置排前，未列出的追加在后并按 id 字母序
+/// 兜底，保证任何一次枚举都能得到确定的展示顺序。
+pub fn sort_plugins_by_site_order(
+    settings: &serde_json::Value,
+    plugins: &mut [plugin_manager::PluginInfo],
+) {
+    let order: Vec<&str> = settings
+        .get("global")
+        .and_then(|global| global.get("siteOrder"))
+        .and_then(serde_json::Value::as_array)
+        .map(|values| values.iter().filter_map(serde_json::Value::as_str).collect())
+        .unwrap_or_default();
+    let rank: std::collections::HashMap<&str, usize> = order
+        .iter()
+        .enumerate()
+        .map(|(index, id)| (*id, index))
+        .collect();
+    plugins.sort_by(|a, b| {
+        let rank_a = rank.get(a.id.as_str()).copied().unwrap_or(usize::MAX);
+        let rank_b = rank.get(b.id.as_str()).copied().unwrap_or(usize::MAX);
+        rank_a.cmp(&rank_b).then_with(|| a.id.cmp(&b.id))
+    });
+}
+
 fn resolve_plugin_home_url(
     plugins: impl IntoIterator<Item = plugin_manager::PluginInfo>,
     site_id: &str,
@@ -193,6 +220,32 @@ mod tests {
         let settings = json!({ "global": { "enabledPlugins": ["fanqie"] } });
         assert!(!is_site_enabled(&settings, "weread"));
         assert!(is_site_enabled(&settings, "fanqie"));
+    }
+
+    #[test]
+    fn site_order_sorts_listed_ids_first_then_unknown_by_id() {
+        let settings = json!({ "global": { "siteOrder": ["zread", "qimao"] } });
+        let mut plugins = vec![
+            plugin("qidian", "https://qidian.example/", true),
+            plugin("fanqie", "https://fanqie.example/", true),
+            plugin("zread", "https://zread.example/", true),
+            plugin("qimao", "https://qimao.example/", true),
+        ];
+        sort_plugins_by_site_order(&settings, &mut plugins);
+        let ids: Vec<&str> = plugins.iter().map(|item| item.id.as_str()).collect();
+        assert_eq!(ids, vec!["zread", "qimao", "fanqie", "qidian"]);
+    }
+
+    #[test]
+    fn site_order_is_id_sorted_when_setting_absent() {
+        let mut plugins = vec![
+            plugin("zread", "https://zread.example/", true),
+            plugin("qimao", "https://qimao.example/", true),
+            plugin("fanqie", "https://fanqie.example/", true),
+        ];
+        sort_plugins_by_site_order(&json!({}), &mut plugins);
+        let ids: Vec<&str> = plugins.iter().map(|item| item.id.as_str()).collect();
+        assert_eq!(ids, vec!["fanqie", "qimao", "zread"]);
     }
 
     #[test]

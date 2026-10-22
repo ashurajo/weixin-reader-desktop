@@ -274,7 +274,9 @@ fn get_plugin_site_items<R: Runtime>(handle: &tauri::AppHandle<R>) -> Vec<Plugin
     let settings = settings::read_settings(handle).unwrap_or_else(|_| settings::default_settings());
 
     // 只显示当前启用的外部插件；被禁用的站点不能从菜单重新打开。
-    if let Ok(plugins) = plugin_manager::get_installed_plugins(handle) {
+    // 展示顺序跟随设置页拖拽写入的 siteOrder，与 ⌘1~7 快捷键映射保持一致。
+    if let Ok(mut plugins) = plugin_manager::get_installed_plugins(handle) {
+        sites::sort_plugins_by_site_order(&settings, &mut plugins);
         for plugin in plugins {
             if sites::is_site_enabled(&settings, &plugin.id) {
                 if let Some(site) = plugin.site {

@@ -613,6 +613,13 @@ pub fn run() {
                 navigate_to_enabled_site_when_on_library(&navigation_handle);
             });
 
+            // 设置页拖拽调整书城顺序：只影响菜单展示顺序，不改变启用集合，
+            // 因此不触发 plugins-updated 的导航联动。
+            let order_handle = app.handle().clone();
+            app.listen("site-order-changed", move |_| {
+                commands::refresh_app_menu(&order_handle);
+            });
+
             // Windows/Linux 冷启动时，关联文件路径由命令行参数传入。
             // macOS 使用下方的 RunEvent::Opened，不在这里重复处理。
             #[cfg(any(target_os = "windows", target_os = "linux"))]

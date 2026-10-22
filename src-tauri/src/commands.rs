@@ -432,7 +432,8 @@ pub fn switch_bookstore_by_index<R: Runtime>(
     if crate::sites::is_site_enabled(&settings, crate::sites::WEREAD.id) {
         site_ids.push(crate::sites::WEREAD.id.to_string());
     }
-    if let Ok(plugins) = crate::plugin_manager::get_installed_plugins(&app) {
+    if let Ok(mut plugins) = crate::plugin_manager::get_installed_plugins(&app) {
+        crate::sites::sort_plugins_by_site_order(&settings, &mut plugins);
         for plugin in plugins {
             if plugin.site.is_some() && crate::sites::is_site_enabled(&settings, &plugin.id) {
                 site_ids.push(plugin.id);
