@@ -112,6 +112,39 @@ describe('Fanqie paginator DOM ownership', () => {
 
     paginator.destroy();
   });
+
+  it('relayouts when plugin styles are injected into head', async () => {
+    const host = document.createElement('section');
+    const content = document.createElement('main');
+    content.className = 'muye-reader-content';
+    host.append(content);
+    document.body.append(host);
+
+    const paginator = new FanqiePaginator();
+    paginator.enable();
+
+    // happy-dom 不做真实排版（几何恒为 0），改用 layout 调用计数验证：
+    // 模拟「隐藏导航栏 / 宽屏」开关往 head 注入样式，分页器只观察 body
+    // 子树感知不到，必须由 head 观察触发重排。
+    let layoutCalls = 0;
+    const internal = paginator as unknown as { layout: (reset: boolean) => void };
+    const originalLayout = internal.layout.bind(paginator);
+    internal.layout = (reset: boolean) => {
+      layoutCalls += 1;
+      originalLayout(reset);
+    };
+
+    const style = document.createElement('style');
+    style.textContent = 'body { padding-top: 200px !important; }';
+    document.head.append(style);
+    try {
+      await new Promise(resolve => setTimeout(resolve, 200));
+      expect(layoutCalls).toBeGreaterThan(0);
+    } finally {
+      style.remove();
+      paginator.destroy();
+    }
+  });
 });
 
 describe('Fanqie spread shell styles', () => {

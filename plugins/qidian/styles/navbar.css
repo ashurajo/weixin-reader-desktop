@@ -1,0 +1,39 @@
+/*
+ * @capability hideNavbar
+ * [功能能力 4/6：隐藏导航栏]
+ * 「阅读 → 隐藏导航栏」
+ * #navbar 是起点阅读页顶部导航（logo、书库、排行榜、登录入口）。
+ */
+#navbar {
+  display: none !important;
+}
+
+/*
+ * 与番茄插件一致的轻量章节头：标题收为左上角 12px 灰字，
+ * 书名/作者/字数/更新时间属于导航型信息，右上角书签入口一并收起，
+ * 顶部预留从 64px 收窄，给正文让出首屏高度。
+ */
+.chapter-wrapper .enable-review {
+  padding-top: 24px !important;
+}
+
+.chapter-wrapper .enable-review h1.title {
+  /* 标题是 inline-block，用下边距与正文拉开一行的呼吸区（与番茄一致）。 */
+  margin: 0 0 24px !important;
+  color: var(--surface-gray-500, rgba(0, 0, 0, 0.48)) !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  line-height: 18px !important;
+}
+
+.chapter-wrapper .enable-review h1.title .review {
+  display: none !important;
+}
+
+.chapter-wrapper .enable-review h1.title + div {
+  display: none !important;
+}
+
+.chapter-wrapper .enable-review > .tooltip-wrapper {
+  display: none !important;
+}

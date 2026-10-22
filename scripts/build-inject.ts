@@ -57,6 +57,9 @@ try {
       'src/scripts/inject.ts',
       `--outfile=${tempPath}`,
       '--target=browser',
+      // 初始化脚本以经典脚本执行，不加 IIFE 时所有顶层声明都会泄漏成页面全局，
+      // 与站点脚本撞名（七猫登录的数美滑块因此无法创建图片，显示「加载失败」）。
+      '--format=iife',
       '--minify-whitespace',
     ],
     { cwd: rootDir, stdio: 'inherit' },

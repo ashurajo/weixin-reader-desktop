@@ -1,0 +1,56 @@
+/*
+ * @capability doubleColumn
+ * [功能能力 1/6：双栏模式]
+ * 注入到起点右侧浮动工具栏首位的单列 / 双栏切换卡片。
+ * 起点条目是 UnoCSS 工具类（w-64px h-64px rounded-8px bg-sheet-b-gray-50…），
+ * 注入节点拿不到这些类，外观按官方条目在此自包含；颜色沿用站点主题变量，
+ * 换肤与夜间模式自动跟随。
+ */
+.atreader-qidian-layout-toggle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 64px;
+  height: 64px;
+  /* 官方条目间距 8px 由后续条目的 mt-8px 提供，首位切换卡片用下边距补齐。 */
+  margin-bottom: 8px;
+  border-radius: 8px;
+  background-color: var(--sheet-background-gray-50, #f5f1e8);
+  color: var(--surface-gray-900, rgba(0, 0, 0, 0.9));
+  font-size: 14px;
+  line-height: 22px;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.atreader-qidian-layout-toggle svg {
+  display: block;
+}
+
+/* 起点站点样式给所有 svg 统一填充 rgba(0,0,0,.32)，优先级高于展示属性
+   fill="none"，线性图标会变成灰色实心块；这里强制恢复线条外观。 */
+.atreader-qidian-layout-toggle svg rect,
+.atreader-qidian-layout-toggle svg path {
+  fill: none !important;
+  stroke: currentColor !important;
+}
+
+.atreader-qidian-layout-toggle span {
+  margin-top: 2px;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--surface-gray-500, rgba(0, 0, 0, 0.48));
+}
+
+.atreader-qidian-layout-toggle:hover span {
+  color: var(--primary-red-500, #e5353e);
+}
+
+.atreader-qidian-layout-toggle:focus-visible {
+  outline: 2px solid var(--primary-red-500, #e5353e);
+  outline-offset: -2px;
+}

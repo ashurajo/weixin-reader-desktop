@@ -1,0 +1,155 @@
+/*
+ * @capability doubleColumn
+ * [功能能力 1/6：双栏模式]
+ * 起点整页双栏排版、百分比书页宽度和无动画整页位移。
+ *
+ * 可直接在「设置 → 插件管理 → 起点读书 → 编辑 → 样式文件」中调整。
+ * JS 只负责更新 --atreader-page-height 和 --atreader-page-offset。
+ * 底部页码属于“进度追踪”，样式单独放在 progress.css。
+ */
+
+html:has(body.atreader-qidian-paged),
+body.atreader-qidian-paged {
+  overflow: hidden !important;
+  overscroll-behavior: none !important;
+}
+
+body.atreader-qidian-paged {
+  /*
+   * 参考微信读书：普通模式正文列占窗口 80%，56px 仅作为书页内部边距。
+   * 起点两侧的浮动控件由下面的偏移规则贴到正文外侧，不再占用书页宽度。
+   */
+  --atreader-page-ratio: 80%;
+  --atreader-shell-padding: 56px;
+}
+
+/* #reader-content 默认是固定像素宽度的正文壳，收窄为百分比书页宽度并居中。 */
+body.atreader-qidian-paged #reader-content {
+  box-sizing: border-box !important;
+  width: var(--atreader-page-ratio) !important;
+  max-width: none !important;
+  margin-right: auto !important;
+  margin-left: auto !important;
+}
+
+/*
+ * 起点的章节正文不由 SSR 直出：didFinish 时 main.content 还不存在，站点
+ * 客户端插入正文到分页器重绑之间会以原生单栏短暂上屏（先单列后双栏闪烁）。
+ * 这里用父子关系把「尚未包进分页视口」的正文隐藏——分页器绑定后 main.content
+ * 的父节点变成视口，规则自动失效；纯 CSS 生效，不依赖观察器时序。
+ */
+body.atreader-qidian-paged .chapter-wrapper .enable-review > main.content {
+  visibility: hidden !important;
+}
+
+/* 书页内边距由 .enable-review 提供，分页视口据此铺满剩余宽度。 */
+body.atreader-qidian-paged .chapter-wrapper .enable-review {
+  box-sizing: border-box !important;
+  width: 100% !important;
+  max-width: none !important;
+  padding-right: var(--atreader-shell-padding) !important;
+  padding-left: var(--atreader-shell-padding) !important;
+}
+
+/*
+ * 两侧浮动控件原生状态贴正文边缘外侧（左侧按钮右缘贴正文左边、右侧菜单
+ * 从正文右边 12px 起），锚点就是正文边。书页变宽后让它们继续贴边即可，
+ * 偏移取书页两侧留白，不做像素补偿（补偿会把控件推进书页内部）。
+ */
+body.atreader-qidian-paged #left-container {
+  left: calc((100% - var(--atreader-page-ratio)) / 2) !important;
+}
+
+body.atreader-qidian-paged #right-container {
+  right: calc((100% - var(--atreader-page-ratio)) / 2) !important;
+}
+
+body.atreader-qidian-paged .atreader-qidian-page-viewport {
+  --atreader-column-gap: clamp(56px, 7vw, 96px);
+  box-sizing: border-box !important;
+  width: 100% !important;
+  max-width: none !important;
+  height: var(--atreader-page-height) !important;
+  min-height: 320px !important;
+  margin-right: auto !important;
+  margin-left: auto !important;
+  overflow: hidden !important;
+}
+
+body.atreader-qidian-paged .atreader-qidian-page-viewport > main.content {
+  box-sizing: border-box !important;
+  display: block !important;
+  width: 100% !important;
+  max-width: none !important;
+  height: var(--atreader-page-height) !important;
+  min-height: 320px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  column-count: 2 !important;
+  column-gap: var(--atreader-column-gap) !important;
+  column-fill: auto !important;
+  overflow: visible !important;
+  transform: translate3d(var(--atreader-page-offset, 0), 0, 0) !important;
+  transition: none !important;
+}
+
+body.atreader-qidian-paged main.content p {
+  /*
+   * 参考微信读书双栏：行距保持舒展，段落之间多留约四分之一行。
+   * 使用相对单位，起点原生字号切换后仍按同一阅读节奏缩放。
+   */
+  margin-top: 0 !important;
+  margin-bottom: 1.25em !important;
+  line-height: 1.85 !important;
+  orphans: 2;
+  widows: 2;
+}
+
+body.atreader-qidian-paged main.content img,
+body.atreader-qidian-paged main.content figure,
+body.atreader-qidian-paged main.content pre,
+body.atreader-qidian-paged main.content blockquote {
+  max-width: 100% !important;
+  max-height: calc(var(--atreader-page-height) - 24px) !important;
+  break-inside: avoid;
+}
+
+/*
+ * 分页模式下只保留正文：面包屑、整页标题区、段评横幅、作者说、章末二维码、
+ * 推荐位和页码操作区都在视口之外，提前移除可避免它们参与多栏排版。
+ */
+body.atreader-qidian-paged #r-breadcrumbs,
+body.atreader-qidian-paged #r-titlePage,
+body.atreader-qidian-paged .chapter-wrapper [class*="_moreComment_"],
+body.atreader-qidian-paged .chapter-wrapper #r-authorSay,
+body.atreader-qidian-paged .chapter-wrapper .chapter-end-qrcode,
+body.atreader-qidian-paged .chapter-wrapper #r-recommends,
+body.atreader-qidian-paged .chapter-wrapper #page-ops {
+  display: none !important;
+}
+
+/* 段评徽标是行内小方块，会在多栏排版里挤断行距，阅读模式下隐藏。 */
+body.atreader-qidian-paged .chapter-wrapper .review {
+  display: none !important;
+}
+
+@media (max-width: 760px) {
+  body.atreader-qidian-paged {
+    --atreader-page-ratio: 100%;
+    --atreader-shell-padding: 32px;
+  }
+
+  /* 窄窗口没有空间容纳两侧浮动控件，阅读模式下让正文独占窗口。 */
+  body.atreader-qidian-paged #left-container,
+  body.atreader-qidian-paged #r-menu {
+    display: none !important;
+  }
+
+  body.atreader-qidian-paged .atreader-qidian-page-viewport {
+    --atreader-column-gap: 28px;
+  }
+
+  body.atreader-qidian-paged .atreader-qidian-page-viewport > main.content {
+    column-count: 1 !important;
+  }
+}

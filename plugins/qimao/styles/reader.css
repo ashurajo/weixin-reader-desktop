@@ -1,0 +1,143 @@
+/*
+ * @capability doubleColumn
+ * [功能能力 1/6：双栏模式]
+ * 七猫整页双栏排版、按窗口比例的书页宽度和无动画整页位移。
+ *
+ * 可直接在「设置 → 插件管理 → 七猫小说 → 编辑 → 样式文件」中调整。
+ * JS 只负责更新 --atreader-page-height 和 --atreader-page-offset。
+ * 底部页码属于“进度追踪”，样式单独放在 progress.css。
+ */
+
+html:has(body.atreader-qimao-paged),
+body.atreader-qimao-paged {
+  overflow: hidden !important;
+  overscroll-behavior: none !important;
+}
+
+body.atreader-qimao-paged {
+  /*
+   * 与番茄插件同一套排版参数：普通模式书页占窗口 80%，56px 仅作为书页
+   * 内部边距。七猫把阅读区固定在 960px 主栏内，所以先让 .main 铺满窗口。
+   */
+  --atreader-page-ratio: 80%;
+  --atreader-shell-padding: 56px;
+  --atreader-shell-width: var(--atreader-page-ratio);
+}
+
+/* 书页按窗口居中需要先让站点固定 960px 的主栏铺满窗口。 */
+body.atreader-qimao-paged .main {
+  width: 100% !important;
+  max-width: none !important;
+  margin-right: 0 !important;
+  margin-left: 0 !important;
+}
+
+/* 顶部导航的白色内容条与书页同宽，避免头部和正文长短不一。 */
+body.atreader-qimao-paged .reader-header .reader-header-con {
+  box-sizing: border-box !important;
+  width: var(--atreader-shell-width) !important;
+  max-width: none !important;
+  margin-right: auto !important;
+  margin-left: auto !important;
+}
+
+/*
+ * reader/index 首章顶部的封面介绍卡会占掉近半屏，分页后正文视口只剩
+ * 不足 320px，被最小高度撑出窗口底部；双栏阅读时收起该卡片，单列仍显示。
+ */
+body.atreader-qimao-paged .reader-wrapper > .book-info {
+  display: none !important;
+}
+
+/* 正文列按窗口比例取书页宽度并水平居中；书页内边距与番茄一致为 56px。 */
+body.atreader-qimao-paged .chapter-detail-wrap.reader-box {
+  box-sizing: border-box !important;
+  width: var(--atreader-shell-width) !important;
+  max-width: none !important;
+  padding-right: var(--atreader-shell-padding) !important;
+  padding-left: var(--atreader-shell-padding) !important;
+  margin-right: auto !important;
+  margin-left: auto !important;
+}
+
+/* 两侧浮动工具栏原本锚在 960px 主栏边缘，书页变宽后跟随书页边缘。 */
+body.atreader-qimao-paged .reader-fixed-left {
+  right: auto !important;
+  left: calc((100vw - var(--atreader-shell-width)) / 2 - 56px) !important;
+  margin-right: 0 !important;
+}
+
+body.atreader-qimao-paged .qm-fixed-right {
+  left: calc((100vw + var(--atreader-shell-width)) / 2 + 12px) !important;
+  margin-left: 0 !important;
+}
+
+body.atreader-qimao-paged .atreader-qimao-page-viewport {
+  --atreader-column-gap: clamp(56px, 7vw, 96px);
+  box-sizing: border-box !important;
+  width: 100% !important;
+  max-width: none !important;
+  height: var(--atreader-page-height) !important;
+  min-height: 320px !important;
+  margin-right: auto !important;
+  margin-left: auto !important;
+  overflow: hidden !important;
+}
+
+body.atreader-qimao-paged .atreader-qimao-page-viewport > .chapter-detail-article {
+  box-sizing: border-box !important;
+  display: block !important;
+  width: 100% !important;
+  max-width: none !important;
+  height: var(--atreader-page-height) !important;
+  min-height: 320px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  column-count: 2 !important;
+  column-gap: var(--atreader-column-gap) !important;
+  column-fill: auto !important;
+  overflow: visible !important;
+  transform: translate3d(var(--atreader-page-offset, 0), 0, 0) !important;
+  transition: none !important;
+}
+
+body.atreader-qimao-paged .chapter-detail-article p {
+  /*
+   * 参考微信读书双栏：行距保持舒展，段落之间多留约四分之一行。
+   * 使用相对单位，七猫原生字号切换后仍按同一阅读节奏缩放。
+   */
+  margin-top: 0 !important;
+  margin-bottom: 1.25em !important;
+  line-height: 1.85 !important;
+  orphans: 2;
+  widows: 2;
+}
+
+body.atreader-qimao-paged .chapter-detail-article img,
+body.atreader-qimao-paged .chapter-detail-article figure,
+body.atreader-qimao-paged .chapter-detail-article pre,
+body.atreader-qimao-paged .chapter-detail-article blockquote {
+  max-width: 100% !important;
+  max-height: calc(var(--atreader-page-height) - 24px) !important;
+  break-inside: avoid;
+}
+
+@media (max-width: 760px) {
+  body.atreader-qimao-paged {
+    --atreader-shell-width: 100vw;
+    --atreader-shell-padding: 32px;
+  }
+
+  /* 窄窗口放不下右侧工具栏（单双栏切换随之收起），左侧工具栏贴边保留。 */
+  body.atreader-qimao-paged .reader-fixed-left {
+    left: 8px !important;
+  }
+
+  body.atreader-qimao-paged .qm-fixed-right {
+    display: none !important;
+  }
+
+  body.atreader-qimao-paged .atreader-qimao-page-viewport {
+    --atreader-column-gap: 28px;
+  }
+}

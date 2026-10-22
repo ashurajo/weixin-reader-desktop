@@ -208,7 +208,65 @@ describe('ZreadPlugin', () => {
     expect(plugin.manifest.capabilities.nativeTheme).toBe(true);
   });
 
-  it('getStyles 返回包内 CSS，菜单项只声明两个隐藏能力', () => {
+  it('章节切换按章节树顺序点击上一章/下一章链接', () => {
+    history.replaceState({}, '', '/d2lang/d2/2-quick-start');
+    const { api } = createApi({ hideToolbar: true, hideNavbar: true });
+    const plugin = new ZreadPlugin();
+    plugin.onLoad(api);
+
+    const clicked: string[] = [];
+    const mk = (href: string) => {
+      const a = document.createElement('a');
+      a.setAttribute('href', href);
+      a.textContent = href;
+      a.getBoundingClientRect = () =>
+        ({ width: 100, height: 20, x: 0, y: 0, top: 0, left: 0, right: 100, bottom: 20, toJSON: () => ({}) } as DOMRect);
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        clicked.push(href);
+      });
+      document.body.append(a);
+      return a;
+    };
+    mk('/d2lang/d2/1-overview');
+    mk('/d2lang/d2/2-quick-start');
+    mk('/d2lang/d2/3-advanced');
+    // 移动端抽屉里的重复链接（不可见）应被忽略
+    const hidden = mk('/d2lang/d2/3-advanced');
+    hidden.getBoundingClientRect = () =>
+      ({ width: 0, height: 0, x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, toJSON: () => ({}) } as DOMRect);
+    // 站点自身的非章节链接（外链/保留首段）不参与
+    mk('https://github.com/d2lang/d2');
+    mk('/trending');
+
+    expect(plugin.nextChapter()).toBe(true);
+    expect(clicked).toEqual(['/d2lang/d2/3-advanced']);
+
+    // 点击被 preventDefault，path 仍是第二章：再退应到第一章
+    expect(plugin.prevChapter()).toBe(true);
+    expect(clicked).toEqual(['/d2lang/d2/3-advanced', '/d2lang/d2/1-overview']);
+
+    // 进入第一章：上一章越界返回 false，下一章进第二节
+    history.replaceState({}, '', '/d2lang/d2/1-overview');
+    expect(plugin.prevChapter()).toBe(false);
+    expect(plugin.nextChapter()).toBe(true);
+    expect(clicked[2]).toBe('/d2lang/d2/2-quick-start');
+
+    // 根 Wiki 页（/owner/repo）即第一章：上一章 false、下一章进第二节
+    history.replaceState({}, '', '/d2lang/d2');
+    expect(plugin.prevChapter()).toBe(false);
+    expect(plugin.nextChapter()).toBe(true);
+    expect(clicked[3]).toBe('/d2lang/d2/2-quick-start');
+
+    // 最后一章：下一章越界返回 false
+    history.replaceState({}, '', '/d2lang/d2/3-advanced');
+    expect(plugin.nextChapter()).toBe(false);
+
+    document.body.replaceChildren();
+    plugin.onUnload();
+  });
+
+  it('getStyles 返回包内 CSS，菜单项声明隐藏能力与自动翻页', () => {
     history.replaceState({}, '', '/d2lang/d2');
     const { api, styleFiles } = createApi({ hideToolbar: true, hideNavbar: true });
     const plugin = new ZreadPlugin();
@@ -217,7 +275,7 @@ describe('ZreadPlugin', () => {
     const styles = plugin.getStyles();
     expect(styles.toolbar?.enabled).toBe(styleFiles['toolbar.css']);
     expect(styles.navbar?.enabled).toBe(styleFiles['navbar.css']);
-    expect(plugin.getReaderMenuItems()).toEqual(['hide_toolbar', 'hide_navbar']);
+    expect(plugin.getReaderMenuItems()).toEqual(['hide_toolbar', 'hide_navbar', 'auto_flip']);
     plugin.onUnload();
   });
 });

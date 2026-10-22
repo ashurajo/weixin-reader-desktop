@@ -1,4 +1,5 @@
 import { AppRuntime } from './core/app_runtime';
+import { applyBootStyles } from './core/boot_styles';
 import { attachEventToSameOriginIframes, attachKeyboardToSameOriginIframes } from './core/iframe_keyboard';
 import { log } from './core/logger';
 import { invoke, listen } from './core/tauri';
@@ -222,6 +223,10 @@ async function main(): Promise<void> {
       }
     }).catch(() => {});
   }
+
+  // 首绘样式引导：壳内嵌的站点插件隐藏 CSS（见 core/boot_styles.ts）在
+  // 首绘前同步套用，zread 等整页改造型站点不再闪现原版布局。
+  applyBootStyles();
 
   const runtime = new AppRuntime();
   try {

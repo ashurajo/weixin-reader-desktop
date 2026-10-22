@@ -6,6 +6,7 @@ import {
   determineScrollRestoreStep,
   SCROLL_RESTORE_POLICY,
 } from '../../managers/app_manager';
+import { LinkManager } from '../../managers/link_manager';
 import { ThemeManager } from '../../managers/theme_manager';
 import { AUTO_FLIP_POLICY, AutoFlipper } from '../../managers/turner/auto_flipper';
 import { CURSOR_POLICY, CursorHider } from '../../managers/turner/cursor_hider';
@@ -129,8 +130,7 @@ describe('manager behavior regression guards', () => {
     expect(document.getElementById('wxrd-cursor-hide')).toBeNull();
   });
 
-  it('restores the native link/theme hooks during destruction', () => {
-    const originalOpen = window.open;
+  it('restores the native theme hooks during destruction', () => {
     const originalMatchMedia = window.matchMedia;
     const addEventListener = mock(() => undefined);
     const removeEventListener = mock(() => undefined);
@@ -146,15 +146,40 @@ describe('manager behavior regression guards', () => {
     })) as typeof window.matchMedia;
     const manager = new ThemeManager();
 
-    expect(window.open).not.toBe(originalOpen);
     expect(document.getElementById('wxrd-dark-mode-filter')?.textContent).toContain('invert(1)');
     manager.destroy();
 
-    expect(window.open).toBe(originalOpen);
     expect(document.getElementById('wxrd-dark-mode-filter')).toBeNull();
     expect(addEventListener).toHaveBeenCalledTimes(1);
     expect(removeEventListener).toHaveBeenCalledTimes(1);
     window.matchMedia = originalMatchMedia;
+  });
+
+  it('redirects named target links and window.open into the current window', () => {
+    const originalOpen = window.open;
+    const originalAddEventListener = document.addEventListener;
+    let clickHandler: ((event: Event) => void) | null = null;
+    document.addEventListener = ((
+      type: string,
+      handler: EventListenerOrEventListenerObject,
+    ) => {
+      if (type === 'click') clickHandler = handler as (event: Event) => void;
+    }) as typeof document.addEventListener;
+
+    const manager = new LinkManager();
+    document.addEventListener = originalAddEventListener;
+
+    expect(window.open).not.toBe(originalOpen);
+    const link = document.createElement('a');
+    link.target = 'book_1655407';
+    const child = document.createElement('span');
+    link.append(child);
+    expect(clickHandler).not.toBeNull();
+    clickHandler!({ target: child } as unknown as Event);
+
+    expect(link.target).toBe('_self');
+    manager.destroy();
+    expect(window.open).toBe(originalOpen);
   });
 });
 

@@ -1,0 +1,83 @@
+/*
+ * @capability doubleColumn
+ * [功能能力 1/6：双栏模式]
+ * 注入到七猫右侧浮动工具栏首位的单列 / 双栏切换条目。
+ * 官方条目样式是 Vue scoped（data-v 属性限定），注入节点拿不到，
+ * 这里按 .qm-fixed-right.type-3 的条目复刻：64px 宽、8px 上下内边距、
+ * 24px 图标、12px/18px 标题；作为首位条目承担卡片顶部的圆角，
+ * 并跟随站点阅读主题（.reader-layout-theme[data-theme]）换色。
+ */
+.atreader-qimao-layout-toggle {
+  box-sizing: border-box;
+  width: 64px;
+  padding: 8px 6px;
+  list-style: none;
+  background: #f5f5f5;
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
+  color: #222;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.reader-layout-theme[data-theme='blue'] .atreader-qimao-layout-toggle {
+  background: #f5f8fb;
+}
+
+.reader-layout-theme[data-theme='green'] .atreader-qimao-layout-toggle {
+  background: #f5faf2;
+}
+
+.reader-layout-theme[data-theme='red'] .atreader-qimao-layout-toggle {
+  background: #fef2f2;
+}
+
+.reader-layout-theme[data-theme='yellow'] .atreader-qimao-layout-toggle {
+  background: #f4f1e9;
+}
+
+.reader-layout-theme[data-theme='dark'] .atreader-qimao-layout-toggle {
+  background: #353535;
+}
+
+.atreader-qimao-layout-toggle svg {
+  display: block;
+  width: 24px;
+  height: 24px;
+  margin: 0 auto;
+  color: #222;
+}
+
+.atreader-qimao-layout-toggle .title {
+  display: block;
+  font-size: 12px;
+  line-height: 18px;
+  color: #222;
+}
+
+.reader-layout-theme[data-theme='dark'] .atreader-qimao-layout-toggle svg,
+.reader-layout-theme[data-theme='dark'] .atreader-qimao-layout-toggle .title {
+  color: grey;
+}
+
+.atreader-qimao-layout-toggle:hover svg,
+.atreader-qimao-layout-toggle:hover .title {
+  color: #cc6d29;
+}
+
+.reader-layout-theme[data-theme='yellow'] .atreader-qimao-layout-toggle:hover svg,
+.reader-layout-theme[data-theme='yellow'] .atreader-qimao-layout-toggle:hover .title {
+  color: #b04f08;
+}
+
+.reader-layout-theme[data-theme='dark'] .atreader-qimao-layout-toggle:hover svg,
+.reader-layout-theme[data-theme='dark'] .atreader-qimao-layout-toggle:hover .title {
+  color: #f0f0f0;
+}
+
+.atreader-qimao-layout-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, currentColor 55%, transparent);
+  outline-offset: -2px;
+}

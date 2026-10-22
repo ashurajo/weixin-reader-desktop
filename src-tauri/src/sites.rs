@@ -1,4 +1,5 @@
 use crate::plugin_manager;
+use regex::Regex;
 use tauri::{AppHandle, Runtime};
 
 /// 站点配置结构体
@@ -61,6 +62,17 @@ fn host_matches_domain(host: &str, domain: &str) -> bool {
     host == domain || host.ends_with(&format!(".{domain}"))
 }
 
+/// manifest 的 reader_pattern 契约是「字符串或正则」。优先按正则解释；
+/// 编译失败再退回子串匹配，兼容番茄 "/reader/" 这类朴素 pattern。
+/// 番茄/起点/七猫的 pattern 均为正则（如 `/chapter/\d+/\d+`），
+/// 子串匹配永远命不中，会把合法阅读页误判成非阅读页。
+fn reader_path_matches(path: &str, pattern: &str) -> bool {
+    match Regex::new(pattern) {
+        Ok(re) => re.is_match(path),
+        Err(_) => path.contains(pattern),
+    }
+}
+
 /// 原生端对阅读页的最小权威判定。前端可报告更细能力，但不能把首页或未知域名
 /// 自行升级成阅读上下文。
 pub fn is_reader_url<R: Runtime>(app: &AppHandle<R>, url: &tauri::Url) -> bool {
@@ -87,7 +99,7 @@ pub fn is_reader_url<R: Runtime>(app: &AppHandle<R>, url: &tauri::Url) -> bool {
                 }),
                 _ => false,
             };
-            domain_matches && url.path().contains(&site.reader_pattern)
+            domain_matches && reader_path_matches(url.path(), &site.reader_pattern)
         })
 }
 
@@ -211,5 +223,26 @@ mod tests {
             "weread.qq.com.evil.test",
             "weread.qq.com"
         ));
+    }
+
+    #[test]
+    fn reader_pattern_supports_regex_and_substring_fallback() {
+        // 起点清单 pattern（正则）
+        assert!(reader_path_matches(
+            "/chapter/1034284970/717661163/",
+            "/chapter/\\d+/\\d+"
+        ));
+        assert!(!reader_path_matches("/", "/chapter/\\d+/\\d+"));
+        // 七猫清单 pattern（正则，两个分支都要能命中）
+        let qimao = "/(reader/index/\\d+|shuku/\\d+-\\d+)";
+        assert!(reader_path_matches("/reader/index/1655407/", qimao));
+        assert!(reader_path_matches("/shuku/1655407-16480917400001/", qimao));
+        assert!(!reader_path_matches("/book/1655407/", qimao));
+        // 番茄清单 pattern（朴素子串，按正则解释语义相同）
+        assert!(reader_path_matches("/reader/12345/", "/reader/"));
+        assert!(!reader_path_matches("/review/12345/", "/reader/"));
+        // 非法正则退回子串匹配
+        assert!(reader_path_matches("/x/a(unclosed/y", "a(unclosed/y"));
+        assert!(!reader_path_matches("/other", "a(unclosed/y"));
     }
 }

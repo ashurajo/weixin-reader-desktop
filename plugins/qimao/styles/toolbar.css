@@ -1,0 +1,11 @@
+/*
+ * @capability hideToolbar
+ * [功能能力 3/6：隐藏工具栏]
+ * 「阅读 → 隐藏工具栏」开启时注入本文件。
+ * .reader-fixed-left 是左侧浮动工具栏（返回 / 指南 / 单双栏切换），
+ * .qm-fixed-right 是右侧浮动工具栏（目录 / 章节列表）。
+ */
+.reader-fixed-left,
+.qm-fixed-right {
+  display: none !important;
+}

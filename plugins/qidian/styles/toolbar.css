@@ -1,0 +1,11 @@
+/*
+ * @capability hideToolbar
+ * [功能能力 3/6：隐藏工具栏]
+ * 「阅读 → 隐藏工具栏」开启时注入本文件。
+ * #left-container 是左侧浮动按钮（举报 / 指南 / 旧版 / 反馈），
+ * #r-menu 是右侧浮动工具栏（目录 / 书详情 / 加书架 / 夜间 / 设置）。
+ */
+#left-container,
+#r-menu {
+  display: none !important;
+}

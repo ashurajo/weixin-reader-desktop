@@ -1,0 +1,18 @@
+/*
+ * @capability wideMode
+ * [功能能力 2/6：宽屏模式]
+ * 「阅读 → 阅读变宽」开启时才会注入本文件，因此不依赖运行期给 body
+ * 追加类名；即使插件早于 <body> 加载，首屏进入双栏后也会直接使用 90%。
+ */
+body.atreader-qimao-paged {
+  /* 与番茄 / 微信读书宽屏模式一致：正文书页从窗口宽度的 80% 增至 90%。 */
+  --atreader-page-ratio: 90%;
+}
+
+/* 关闭双栏配置后，宽屏开关仍对七猫原生单栏有效。 */
+body:not(.atreader-qimao-paged) .chapter-detail-article {
+  width: auto !important;
+  max-width: 960px !important;
+  margin-right: auto !important;
+  margin-left: auto !important;
+}

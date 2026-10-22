@@ -5500,6 +5500,7 @@ dependencies = [
  "objc2-foundation",
  "objc2-speech",
  "percent-encoding",
+ "regex",
  "roxmltree",
  "serde",
  "serde_json",

@@ -54,6 +54,10 @@ const ZREAD_RUNTIME_MANIFEST: PluginManifest = {
     hideNavbar: true,
     hideCursor: true,
     nativeTheme: true,
+    // 滚动翻页走遥控器/菜单的上一页/下一页（nextPage = 上下滚动一屏）。
+    autoFlip: true,
+    // 章节切换：按左侧章节树的顺序跳上一章/下一章。
+    chapterNav: true,
   },
 };
 
@@ -125,6 +129,61 @@ export class ZreadPlugin implements ReaderPlugin {
     return window.innerHeight + window.scrollY >= totalHeight - 300;
   }
 
+  /*!
+   * @capability chapterNav [能力 3/3：章节切换]
+   * 左侧章节树就是按阅读顺序排列的章节链接表（href 形如
+   * /<owner>/<repo>/<slug>，与 READER_PAGE_PATTERN 同源、首段排除保留词）。
+   * 当前章 = href 与 pathname 完全一致的条目；根 Wiki 页（/owner/repo，
+   * 即「概述」）不在树里，按第 0 章处理。跳转直接点击树链接，
+   * 走 Next.js 客户端路由，无整页刷新。
+   */
+  private getChapterTreeLinks(): HTMLAnchorElement[] {
+    const seen = new Set<string>();
+    const links: HTMLAnchorElement[] = [];
+    for (const link of Array.from(
+      document.querySelectorAll<HTMLAnchorElement>('a[href^="/"]'),
+    )) {
+      const href = link.getAttribute('href') || '';
+      // 章节链接 = 领域保留词之外的 /<owner>/<repo>/<slug> 三段路径
+      if (!/^\/(?!(?:trending|library|mcp|cli|subscription|private)(?:\/|$))[^/]+\/[^/]+\/.+/.test(href)) {
+        continue;
+      }
+      if (seen.has(href)) continue;
+      const rect = link.getBoundingClientRect();
+      // 移动端抽屉里的重复树不可见，仅收集当前呈现的目录
+      if (rect.width === 0 && rect.height === 0) continue;
+      seen.add(href);
+      links.push(link);
+    }
+    return links;
+  }
+
+  private getCurrentChapterIndex(links: HTMLAnchorElement[]): number {
+    const path = window.location.pathname;
+    for (let i = 0; i < links.length; i += 1) {
+      if (links[i].getAttribute('href') === path) return i;
+    }
+    // 根 Wiki 页就是第一章（概述）
+    if (/^\/[^/]+\/[^/]+$/.test(path)) return 0;
+    return -1;
+  }
+
+  prevChapter(): boolean {
+    const links = this.getChapterTreeLinks();
+    const index = this.getCurrentChapterIndex(links);
+    if (index <= 0) return false;
+    links[index - 1].click();
+    return true;
+  }
+
+  nextChapter(): boolean {
+    const links = this.getChapterTreeLinks();
+    const index = this.getCurrentChapterIndex(links);
+    if (index < 0 || index >= links.length - 1) return false;
+    links[index + 1].click();
+    return true;
+  }
+
   getStyles(): PluginStyles {
     return {
       toolbar: {
@@ -139,7 +198,7 @@ export class ZreadPlugin implements ReaderPlugin {
   }
 
   getReaderMenuItems(): string[] {
-    return ['hide_toolbar', 'hide_navbar'];
+    return ['hide_toolbar', 'hide_navbar', 'auto_flip'];
   }
 
   private applySettings(settings: Record<string, unknown>): void {

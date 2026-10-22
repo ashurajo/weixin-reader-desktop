@@ -1,0 +1,30 @@
+/*
+ * @capability hideNavbar
+ * [功能能力 4/6：隐藏导航栏]
+ * 「阅读 → 隐藏导航栏」
+ * .reader-header 是七猫站点顶部导航（logo、搜索、登录入口）。
+ */
+.reader-header {
+  display: none !important;
+}
+
+/*
+ * 与番茄插件一致的轻量章节头：标题收为左上角 12px 灰字，
+ * 书名/作者/本章字数/更新时间属于导航型信息，一并收起。
+ */
+.chapter-detail-wrap-info {
+  padding: 24px 0 12px !important;
+  text-align: left !important;
+}
+
+.chapter-detail-wrap-info .chapter-title {
+  margin: 0 !important;
+  color: #999 !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  line-height: 18px !important;
+}
+
+.chapter-detail-wrap-info .chapter-tips {
+  display: none !important;
+}

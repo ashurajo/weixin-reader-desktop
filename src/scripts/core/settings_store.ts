@@ -124,7 +124,8 @@ export class SettingsStore {
     return operation;
   }
 
-  private async initialize(generation: number): Promise<void> {
+
+private async initialize(generation: number): Promise<void> {
     await this.writeQueue;
     if (generation !== this.lifecycleGeneration) return;
     try {

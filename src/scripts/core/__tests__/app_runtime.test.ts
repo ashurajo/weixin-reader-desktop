@@ -113,6 +113,26 @@ describe('AppRuntime ownership', () => {
     }
   });
 
+  it('keeps the single-window link policy active on reader pages', () => {
+    const originalOpen = window.open;
+    const originalGetActive = loader.getActivePlugin;
+    loader.getActivePlugin = mock(() => ({
+      manifest: { capabilities: {} },
+    }) as any);
+    const runtime = new AppRuntime();
+    try {
+      (runtime as any).createManagers(true);
+      // 阅读页不建 ThemeManager（反色滤镜会污染站点），但链接策略必须仍在。
+      expect(document.getElementById('wxrd-dark-mode-filter')).toBeNull();
+      expect(window.open).not.toBe(originalOpen);
+    } finally {
+      for (const disposable of (runtime as any).disposables) disposable.destroy();
+      (runtime as any).disposables.length = 0;
+      loader.getActivePlugin = originalGetActive;
+    }
+    expect(window.open).toBe(originalOpen);
+  });
+
   it('serializes plugin reload and refreshes settings before replacing the runtime', async () => {
     const order: string[] = [];
     const runtime = new AppRuntime();

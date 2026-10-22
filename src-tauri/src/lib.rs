@@ -383,6 +383,19 @@ pub fn run() {
 
             // Create Main Window - determine initial URL
             // Check if we should restore the last reader page directly (to avoid flash of homepage)
+            // 首绘样式引导：把已启用站点插件的导航/工具栏隐藏 CSS 与设置快照
+            // 嵌进初始化脚本，zread 这类整页改造型站点首绘即是目标形态，
+            // 不必等插件 IPC 加载完才塌陷（插件就绪后前端移除引导样式并接管）。
+            let inject_script = {
+                let boot_settings = settings::read_settings(app.handle())
+                    .unwrap_or_else(|_| settings::default_settings());
+                let boot_script = commands::build_boot_snapshot(app.handle(), &boot_settings)
+                    .ok()
+                    .flatten()
+                    .map(|snapshot| format!("window.__ATREADER_BOOT__={snapshot};\n"))
+                    .unwrap_or_default();
+                format!("{boot_script}{}", inject_script)
+            };
             println!("[Init] App starting... Inject script size: {} bytes", inject_script.len());
 
             let startup_target = {

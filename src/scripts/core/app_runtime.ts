@@ -1,7 +1,9 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { builtinPluginFactories } from '../../plugins/builtin';
+import { settleBootStyles } from '../core/boot_styles';
 import { AppManager } from '../managers/app_manager';
 import { IPCManager } from '../managers/ipc_manager';
+import { LinkManager } from '../managers/link_manager';
 import { MenuManager } from '../managers/menu_manager';
 import { RemoteManager } from '../managers/remote_manager';
 import { StyleManager } from '../managers/style_manager';
@@ -45,6 +47,10 @@ export class AppRuntime {
       return;
     }
 
+    // 插件已接管样式注入，移除 documentStart 的首绘引导样式（内容相同，
+    // 保留会在用户关闭开关后残留）。
+    settleBootStyles();
+
     const active = loader.getActivePlugin();
     if (active) {
       await invoke('apply_site_zoom', { siteId: active.id }).catch(() => undefined);
@@ -77,6 +83,8 @@ export class AppRuntime {
     create('IPCManager', () => new IPCManager());
     create('MenuManager', () => new MenuManager());
     create('AppManager', () => new AppManager());
+    // 链接收敛是单窗口的全局策略，阅读页也要生效（七猫章节依赖 target 改写）。
+    create('LinkManager', () => new LinkManager());
     create('TurnerManager', () => new TurnerManager());
     create('RemoteManager', () => new RemoteManager());
     // 反色滤镜是给首页不支持深浅自适应的站点（微信读书、番茄小说）兜底的；
@@ -174,6 +182,7 @@ export class AppRuntime {
     if (this.destroyed) return;
     this.destroyed = true;
     this.reloadGeneration++;
+    settleBootStyles();
     if (this.pagehideHandler) {
       window.removeEventListener('pagehide', this.pagehideHandler);
       this.pagehideHandler = null;

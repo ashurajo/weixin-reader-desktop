@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::sync::atomic::{AtomicBool, Ordering};
 // AtomicU64 仅被 Windows 专属的 hover 唤出菜单栏世代计数使用
 #[cfg(target_os = "windows")]
@@ -696,6 +697,112 @@ fn manifest_matches_host(plugin: &plugin_manager::PluginInfo, host: &str) -> boo
     plugin_manager::manifest_matches_host(plugin, host)
 }
 
+/// 首绘样式引导快照（纯函数，便于测试）：把已启用站点插件的
+/// hideNavbar/hideToolbar CSS 与站点设置打包成初始化脚本用的 JSON。
+/// 前端在 documentStart 同步套用、插件系统就绪后移除（见 boot_styles 模块），
+/// 让 zread 这类整页改造型站点不必等插件 IPC 加载完才塌陷成沉浸模式。
+/// 只嵌导航/工具栏两类（与菜单开关一一对应）；reader/progress 等运行态
+/// 样式由插件偏好驱动，不进快照。
+pub fn build_boot_snapshot_json(
+    plugins: &[(plugin_manager::PluginInfo, std::collections::BTreeMap<String, String>)],
+    settings: &serde_json::Value,
+) -> Option<String> {
+    let enabled = settings
+        .get("global")
+        .and_then(|global| global.get("enabledPlugins"))
+        .and_then(serde_json::Value::as_array);
+    let is_enabled = |plugin_id: &str| {
+        enabled.is_none_or(|ids| ids.iter().any(|value| value.as_str() == Some(plugin_id)))
+    };
+    let empty_sites = serde_json::Map::new();
+    // 只投影两个布尔开关：快照会被站点页面脚本读到，不得携带
+    // lastReaderUrl 等跨站点数据。
+    let site_settings: serde_json::Map<String, serde_json::Value> = settings
+        .get("sites")
+        .and_then(|sites| sites.as_object())
+        .unwrap_or(&empty_sites)
+        .iter()
+        .map(|(id, value)| {
+            (
+                id.clone(),
+                json!({
+                    "hideNavbar": value.get("hideNavbar"),
+                    "hideToolbar": value.get("hideToolbar"),
+                }),
+            )
+        })
+        .collect();
+
+    let mut entries: Vec<serde_json::Value> = Vec::new();
+    for (plugin, styles) in plugins {
+        let Some(site) = plugin.site.as_ref() else {
+            continue;
+        };
+        if !is_enabled(&plugin.id) {
+            continue;
+        }
+        let caps = plugin.capabilities.clone().unwrap_or_else(|| json!({}));
+        let want_navbar =
+            caps.get("hideNavbar").and_then(serde_json::Value::as_bool) == Some(true);
+        let want_toolbar =
+            caps.get("hideToolbar").and_then(serde_json::Value::as_bool) == Some(true);
+        if !want_navbar && !want_toolbar {
+            continue;
+        }
+        let pick = |suffix: &str| -> Option<String> {
+            styles
+                .iter()
+                .rev()
+                .find(|(name, _)| name.ends_with(suffix))
+                .map(|(_, content)| content.clone())
+        };
+        entries.push(json!({
+            "id": plugin.id,
+            "domains": site.domain.clone(),
+            "capabilities": caps,
+            "styles": {
+                "navbar": if want_navbar { pick("navbar.css") } else { None },
+                "toolbar": if want_toolbar { pick("toolbar.css") } else { None },
+            },
+        }));
+    }
+    if entries.is_empty() {
+        return None;
+    }
+    Some(
+        json!({
+            "siteSettings": site_settings,
+            "plugins": entries,
+        })
+        .to_string(),
+    )
+}
+
+/// 读取已启用站点插件并生成首绘样式引导快照；启动时嵌入初始化脚本。
+pub fn build_boot_snapshot<R: Runtime>(
+    app: &AppHandle<R>,
+    settings: &serde_json::Value,
+) -> Result<Option<String>, String> {
+    let enabled = settings
+        .get("global")
+        .and_then(|global| global.get("enabledPlugins"))
+        .and_then(serde_json::Value::as_array);
+    let is_enabled = |plugin_id: &str| {
+        enabled.is_none_or(|ids| ids.iter().any(|value| value.as_str() == Some(plugin_id)))
+    };
+    let mut pairs: Vec<(plugin_manager::PluginInfo, std::collections::BTreeMap<String, String>)> =
+        Vec::new();
+    for plugin in plugin_manager::get_installed_plugins(app)? {
+        if !is_enabled(&plugin.id) {
+            continue;
+        }
+        // 样式读取失败视作无引导样式：页面稍后仍由插件正常注入。
+        let styles = plugin_manager::get_plugin_styles(app, &plugin.id).unwrap_or_default();
+        pairs.push((plugin, styles));
+    }
+    Ok(build_boot_snapshot_json(&pairs, settings))
+}
+
 /// 主窗口只能取得与当前 URL 唯一匹配的插件代码。
 #[tauri::command]
 pub async fn get_runtime_plugin<R: Runtime>(
@@ -1071,6 +1178,40 @@ mod tests {
             &plugin,
             "reader.example.net.attacker.test"
         ));
+    }
+
+    #[test]
+    fn boot_snapshot_embeds_only_gated_style_files() {
+        let mut styles = std::collections::BTreeMap::new();
+        styles.insert("navbar.css".to_string(), "header{display:none}".to_string());
+        styles.insert("toolbar.css".to_string(), ".rail{display:none}".to_string());
+        styles.insert("reader.css".to_string(), ".paged{column-count:2}".to_string());
+
+        let mut plugin = web_plugin(json!("zread.ai"));
+        plugin.id = "zread".to_string();
+        plugin.capabilities = Some(json!({ "hideNavbar": true, "hideToolbar": true }));
+
+        // 快照只负责把「能力允许的两类样式」都带上；站点开关由前端判定。
+        let settings = json!({
+            "global": { "enabledPlugins": ["zread"] },
+            "sites": { "zread": { "hideNavbar": true } }
+        });
+        let snapshot = build_boot_snapshot_json(&[(plugin.clone(), styles.clone())], &settings)
+            .expect("snapshot");
+        assert!(snapshot.contains("header{display:none}"));
+        assert!(snapshot.contains(".rail{display:none}"));
+        // 运行态样式（reader 等）不进快照。
+        assert!(!snapshot.contains("column-count:2"));
+
+        // 未启用（enabledPlugins 不含）→ 不进快照。
+        let disabled = json!({ "global": { "enabledPlugins": ["other"] } });
+        assert!(build_boot_snapshot_json(&[(plugin.clone(), styles.clone())], &disabled).is_none());
+
+        // 无导航/工具栏能力的插件 → 不进快照。
+        let mut bare = web_plugin(json!("zread.ai"));
+        bare.id = "bare".to_string();
+        bare.capabilities = Some(json!({ "hideCursor": true }));
+        assert!(build_boot_snapshot_json(&[(bare, styles)], &settings).is_none());
     }
 
     #[test]
