@@ -1,0 +1,92 @@
+/*
+ * @foundation 深浅切换（工具栏「深浅」键）：掌阅站点只有浅色，深色由插件注入。
+ * 通过 body.atreader-ireader-dark 开关；仅覆盖颜色类属性，不碰布局。
+ */
+
+body.atreader-ireader-dark,
+body.atreader-ireader-dark .reader,
+body.atreader-ireader-dark .reader-width {
+  background-color: #1b1d1f !important;
+}
+
+body.atreader-ireader-dark .reader-content p,
+body.atreader-ireader-dark .reader-content,
+body.atreader-ireader-dark .reader-header-title span {
+  color: rgba(255, 255, 255, 0.87) !important;
+}
+
+body.atreader-ireader-dark .reader-header {
+  background-color: #1b1d1f !important;
+  border-bottom-color: rgba(255, 255, 255, 0.09) !important;
+}
+
+body.atreader-ireader-dark .reader-header .zy-btn,
+body.atreader-ireader-dark .reader-header .zy-btn i {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+
+/* 目录抽屉（el-scrollbar 容器）与章节项 */
+body.atreader-ireader-dark .directory-wrapper,
+body.atreader-ireader-dark .directory {
+  background-color: #242628 !important;
+}
+
+body.atreader-ireader-dark .directory .book-name,
+body.atreader-ireader-dark .directory .book-author,
+body.atreader-ireader-dark .chapter-list-container li,
+body.atreader-ireader-dark .chapter-list-container a {
+  color: rgba(255, 255, 255, 0.78) !important;
+}
+
+/* 章节标题 .line-1 自带颜色（rgba(0,0,0,.85)），必须逐元素覆盖才能反色 */
+body.atreader-ireader-dark .chapter-list-container .chapter-item .line-1 {
+  color: rgba(255, 255, 255, 0.75) !important;
+}
+
+body.atreader-ireader-dark .chapter-list-container .chapter-item.active .line-1 {
+  color: #60c38e !important;
+}
+
+body.atreader-ireader-dark .directory .chapter-count span {
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+
+body.atreader-ireader-dark .directory .close-btn {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+body.atreader-ireader-dark .reader-content img {
+  /* 深色下柔化亮色图片，避免刺眼 */
+  filter: brightness(0.85) !important;
+}
+
+/* 工具栏深色形态 */
+body.atreader-ireader-dark .atreader-ireader-toolbar button {
+  background-color: #26282b !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+body.atreader-ireader-dark .atreader-ireader-toolbar button:hover {
+  color: #60c38e !important;
+}
+
+/* 字体面板深色形态 */
+body.atreader-ireader-dark .atreader-ireader-font-panel {
+  background-color: #26282b !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+body.atreader-ireader-dark .atreader-ireader-font-panel .label,
+body.atreader-ireader-dark .atreader-ireader-font-panel .ticks {
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+
+/* 页码指示器深色形态（rgba 回退；新 WebKit 上 progress.css 的 color-mix
+ * 因本选择器优先级更高不会生效，rgba 深色即为最终形态） */
+body.atreader-ireader-dark .atreader-ireader-page-indicator {
+  background: rgba(30, 32, 34, 0.88);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.6);
+}

@@ -1,0 +1,26 @@
+/*
+ * @foundation 底部「当前页 / 总页数」指示器。
+ * 分页激活时生效；预留的底部 48px 高度就是给它画的。
+ * 颜色先用 rgba 兜底（老 WebKit 不支持 color-mix 时仍有可读样式），
+ * 新 WebKit 上再用 color-mix 自动适配系统深浅色。
+ */
+
+.atreader-ireader-page-indicator {
+  position: fixed;
+  z-index: 2147483000;
+  right: 50%;
+  bottom: 14px;
+  padding: 3px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  color: rgba(0, 0, 0, 0.6);
+  font: 12px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  pointer-events: none;
+  transform: translateX(50%);
+  opacity: 0.75;
+  backdrop-filter: blur(10px);
+  border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  background: color-mix(in srgb, Canvas 88%, transparent);
+  color: color-mix(in srgb, CanvasText 62%, transparent);
+}

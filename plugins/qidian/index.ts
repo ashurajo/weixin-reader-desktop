@@ -1,5 +1,5 @@
 /*!
- * 起点读书插件
+ * 起点中文插件
  *
  * 仅增强网页呈现：CSS 多栏负责排版，代码负责整页位移和章节边界。
  * 不复制正文、不破解字体，也不抓取或导出内容。
@@ -63,7 +63,7 @@ const DOUBLE_COLUMN_ICON = `
 // 运行时代码中不内联 manifest 的 base64 图标，避免插件编辑器顶部出现超长数据行。
 const QIDIAN_RUNTIME_MANIFEST: PluginManifest = {
   id: 'qidian',
-  name: '起点读书',
+  name: '起点中文',
   version: '1.0.0',
   description: '起点中文网网站支持插件（官方）',
   author: '艾特阅读团队',

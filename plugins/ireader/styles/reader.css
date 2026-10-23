@@ -1,0 +1,113 @@
+/*
+ * @capability doubleColumn
+ * 掌阅 PC 阅读器整页双栏排版：滚动流正文改造为双栏分页。
+ *
+ * 可直接在「设置 → 插件管理 → 掌阅 → 编辑 → 样式文件」中调整。
+ * JS 只负责更新 --atreader-page-height 和 --atreader-page-offset。
+ */
+
+html:has(body.atreader-ireader-paged),
+body.atreader-ireader-paged {
+  overflow: hidden !important;
+  overscroll-behavior: none !important;
+}
+
+body.atreader-ireader-paged {
+  --atreader-page-ratio: 90%;
+  --atreader-shell-padding: 40px;
+  --atreader-shell-width: var(--atreader-page-ratio);
+  /*
+   * 正文卡是 rgb(246,245,243)，外围画布是 rgb(238,236,232)，两色差一格
+   * 会在书页四周与底部页码区形成「假空白」。分页时整体统一为正文卡色，
+   * 视觉上就是一张铺满窗口的完整书页。
+   */
+  background-color: rgb(246, 245, 243) !important;
+}
+
+html:has(body.atreader-ireader-paged),
+body.atreader-ireader-paged .reader {
+  background-color: rgb(246, 245, 243) !important;
+}
+
+/* 站点把正文固定在 800px 的 .reader-width 里，分页时铺满书页宽度。 */
+body.atreader-ireader-paged .reader-width {
+  box-sizing: border-box !important;
+  width: var(--atreader-shell-width) !important;
+  max-width: none !important;
+  padding-right: var(--atreader-shell-padding) !important;
+  padding-left: var(--atreader-shell-padding) !important;
+  margin-right: auto !important;
+  margin-left: auto !important;
+  background-color: rgb(246, 245, 243) !important;
+}
+
+/*
+ * 站点顶部导航（sticky，占文档流 60px）保持可见：分页器的页高按
+ * 视口实际 top 计算，会自动让出导航条高度，无需在此预留。
+ */
+
+body.atreader-ireader-paged .atreader-ireader-page-viewport {
+  --atreader-column-gap: clamp(24px, 2.5vw, 40px);
+  box-sizing: border-box !important;
+  width: 100% !important;
+  max-width: none !important;
+  height: var(--atreader-page-height) !important;
+  min-height: 320px !important;
+  margin-right: auto !important;
+  margin-left: auto !important;
+  overflow: hidden !important;
+}
+
+body.atreader-ireader-paged .atreader-ireader-page-viewport > .reader-content {
+  box-sizing: border-box !important;
+  display: block !important;
+  width: 100% !important;
+  max-width: none !important;
+  height: var(--atreader-page-height) !important;
+  min-height: 320px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  column-count: 2 !important;
+  column-gap: var(--atreader-column-gap) !important;
+  column-fill: auto !important;
+  overflow: visible !important;
+  transform: translate3d(var(--atreader-page-offset, 0), 0, 0) !important;
+  transition: none !important;
+}
+
+body.atreader-ireader-paged .reader-content p {
+  /*
+   * 对齐番茄的阅读节奏：行距 1.85、段距约四分之一行。
+   * 使用相对单位，字号档位切换后仍按同一节奏缩放。
+   * 灰度抗锯齿让笔画观感更细一档。字体家族不在这里写死：站方正文混有
+   * Plane 15 私用区码位做反爬（私用字为频率前 20 的「的一是在有…」，
+   * 字形只存在于站方 509R），家族由「字体」面板按所选字重动态注入——
+   * CDN 的 504L/506L_pua 已把私用码位映射到字库内同字形。
+   */
+  margin-top: 0 !important;
+  margin-bottom: 1.25em !important;
+  line-height: 1.85 !important;
+  orphans: 2;
+  widows: 2;
+  -webkit-font-smoothing: antialiased;
+}
+
+body.atreader-ireader-paged .reader-content img,
+body.atreader-ireader-paged .reader-content figure,
+body.atreader-ireader-paged .reader-content pre,
+body.atreader-ireader-paged .reader-content blockquote {
+  max-width: 100% !important;
+  max-height: calc(var(--atreader-page-height) - 24px) !important;
+  break-inside: avoid;
+}
+
+@media (max-width: 760px) {
+  body.atreader-ireader-paged {
+    --atreader-shell-width: 100vw;
+    --atreader-shell-padding: 32px;
+  }
+
+  body.atreader-ireader-paged .atreader-ireader-page-viewport {
+    --atreader-column-gap: 24px;
+  }
+}

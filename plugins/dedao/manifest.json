@@ -1,0 +1,18 @@
+{
+  "id": "dedao",
+  "name": "得到",
+  "version": "0.1.0",
+  "description": "得到（dedao.cn）在线阅读（裸站接入，深浅主题由站点自身控制）",
+  "author": "艾特阅读团队",
+  "homepage": "https://github.com/dengcb/weixin-reader-desktop",
+  "sourceType": "web",
+  "renderMode": "webview",
+  "site": {
+    "domain": ["dedao.cn"],
+    "homeUrl": "https://www.dedao.cn/",
+    "readerPattern": "/ebook/reader"
+  },
+  "capabilities": {
+    "nativeTheme": true
+  }
+}

@@ -1,0 +1,151 @@
+/*
+ * @foundation 右侧工具栏（单双 / 目录 / 深浅 / 字体）与「字体」弹窗面板。
+ * 掌阅阅读器没有任何排版控件，该工具栏由插件自建，浅深两态随深浅键切换。
+ */
+
+.atreader-ireader-toolbar {
+  position: fixed;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2200;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/*
+ * 站点顶部导航右侧的目录按钮隐藏：目录入口统一走右侧工具栏，避免双入口。
+ * 工具栏「目录」键仍以编程方式点击该按钮唤出原生抽屉，功能不受影响。
+ */
+.reader .reader-header .reader-header-action {
+  display: none !important;
+}
+
+/*
+ * 「字体」面板：贴在工具栏左侧，字号与字形均为滑杆调节。
+ */
+.atreader-ireader-font-panel {
+  position: fixed;
+  right: 84px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2200;
+  box-sizing: border-box;
+  width: 252px;
+  padding: 14px 16px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  background-color: #ffffff;
+  color: rgba(0, 0, 0, 0.85);
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.14);
+  user-select: none;
+}
+
+.atreader-ireader-font-panel .row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.atreader-ireader-font-panel .row + .row {
+  margin-top: 14px;
+}
+
+.atreader-ireader-font-panel .label {
+  flex: none;
+  width: 30px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.atreader-ireader-font-panel .value {
+  flex: none;
+  min-width: 36px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #349f66;
+}
+
+.atreader-ireader-font-panel input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  accent-color: #349f66;
+}
+
+.atreader-ireader-font-panel .slider-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.atreader-ireader-font-panel .ticks {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+/* 菜单「隐藏工具栏」（⌘O）开启时隐藏整个工具栏。 */
+.atreader-ireader-toolbar.atreader-ireader-toolbar-hidden {
+  display: none !important;
+}
+
+.atreader-ireader-toolbar button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 56px;
+  min-height: 56px;
+  padding: 6px 2px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background-color: #ffffff;
+  color: rgba(0, 0, 0, 0.85);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+
+.atreader-ireader-toolbar button:hover {
+  color: #349f66;
+}
+
+.atreader-ireader-toolbar button:focus-visible {
+  outline: 3px solid rgba(52, 159, 102, 0.34);
+  outline-offset: 1px;
+}
+
+.atreader-ireader-toolbar button svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (max-width: 760px) {
+  .atreader-ireader-toolbar {
+    right: 8px;
+  }
+
+  .atreader-ireader-toolbar button {
+    width: 48px;
+    min-height: 48px;
+  }
+
+  .atreader-ireader-font-panel {
+    right: 64px;
+    width: 228px;
+  }
+}

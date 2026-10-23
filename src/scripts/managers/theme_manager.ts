@@ -1,9 +1,11 @@
 import { injectCSS, removeCSS } from '../core/utils';
+import { getPluginLoader } from '../core/plugin_loader';
 
 export class ThemeManager {
   // Store references for cleanup
   private darkModeQuery: MediaQueryList | null = null;
   private darkModeChangeHandler: ((e: MediaQueryListEvent) => void) | null = null;
+  private reevaluateHandler: (() => void) | null = null;
 
   constructor() {
     this.init();
@@ -14,9 +16,24 @@ export class ThemeManager {
     return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   }
 
+  /**
+   * 站点在 manifest 声明 nativeTheme 时，深浅模式完全交给站点自身机制，
+   * 壳层不得注入反色滤镜。该判定在「每次应用」时自查而非仅在装配时决定：
+   * 初始化时序可能让本管理器在插件就绪前创建（站点是后启用/后安装的），
+   * 一次性决策会让滤镜永久残留——根元素 filter 会破坏 WebKit 在 SPA 路由
+   * 切换后的命中测试，表现为「点击链接无响应」。
+   */
+  private nativeThemeHandoff(): boolean {
+    try {
+      return getPluginLoader().getActivePlugin()?.manifest.capabilities.nativeTheme === true;
+    } catch {
+      return false;
+    }
+  }
+
   private applyTheme(isDark: boolean) {
     const isIframe = window.self !== window.top;
-    
+
     // CSS Filter Logic
     const cssContent = `
       img, video, canvas, svg {
@@ -45,9 +62,14 @@ export class ThemeManager {
         background-color: #d3d3d3 !important;
       }
     `;
-    
+
     const finalCss = isIframe ? cssContent : (cssRoot + cssContent);
     const id = 'wxrd-dark-mode-filter';
+
+    if (this.nativeThemeHandoff()) {
+      removeCSS(id);
+      return;
+    }
 
     if (isDark) {
       injectCSS(id, finalCss);
@@ -70,6 +92,12 @@ export class ThemeManager {
 
   private init() {
       this.initDarkMode();
+      // SPA 路由变化与插件启用/安装都可能改变「当前站点是否声明
+      // nativeTheme」，订阅这两类信号随时自愈，避免一次性决策遗留滤镜。
+      this.reevaluateHandler = () => this.applyTheme(this.shouldEnableDarkMode());
+      window.addEventListener('ipc:route-changed', this.reevaluateHandler);
+      window.addEventListener('wxrd:route-changed', this.reevaluateHandler);
+      window.addEventListener('plugins-updated', this.reevaluateHandler);
   }
 
   public destroy() {
@@ -78,6 +106,13 @@ export class ThemeManager {
       this.darkModeQuery.removeEventListener('change', this.darkModeChangeHandler);
       this.darkModeQuery = null;
       this.darkModeChangeHandler = null;
+    }
+
+    if (this.reevaluateHandler) {
+      window.removeEventListener('ipc:route-changed', this.reevaluateHandler);
+      window.removeEventListener('wxrd:route-changed', this.reevaluateHandler);
+      window.removeEventListener('plugins-updated', this.reevaluateHandler);
+      this.reevaluateHandler = null;
     }
 
     // Clean up injected CSS

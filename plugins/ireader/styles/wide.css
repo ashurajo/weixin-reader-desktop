@@ -1,0 +1,8 @@
+/*
+ * @capability wideMode
+ * 宽屏模式：书页占窗口 90%（默认 80%），仅覆盖比例变量。
+ */
+
+body.atreader-ireader-paged {
+  --atreader-page-ratio: 96%;
+}

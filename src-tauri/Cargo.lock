@@ -5489,7 +5489,7 @@ dependencies = [
 
 [[package]]
 name = "weixin-reader"
-version = "1.9.2"
+version = "1.9.3"
 dependencies = [
  "block2",
  "encoding_rs",

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { EventBus } from '../event_bus';
 import type { SiteContext } from '../site_context';
 import type { MergedSettings } from '../settings_store';
+import { getPluginLoader } from '../plugin_loader';
 import {
   determineScrollRestoreStep,
   SCROLL_RESTORE_POLICY,
@@ -153,6 +154,48 @@ describe('manager behavior regression guards', () => {
     expect(addEventListener).toHaveBeenCalledTimes(1);
     expect(removeEventListener).toHaveBeenCalledTimes(1);
     window.matchMedia = originalMatchMedia;
+  });
+
+  it('nativeTheme 站点在装配竞态后也能经路由/插件事件自愈移除滤镜', () => {
+    const loader = getPluginLoader();
+    const originalGetActive = loader.getActivePlugin;
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = (() => ({
+      matches: true,
+      media: '(prefers-color-scheme: dark)',
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => true,
+    })) as typeof window.matchMedia;
+    try {
+      // 初始化竞态：插件未就绪（无活动插件）→ 滤镜按旧逻辑先注入
+      loader.getActivePlugin = mock(() => null);
+      const manager = new ThemeManager();
+      expect(document.getElementById('wxrd-dark-mode-filter')?.textContent).toContain('invert(1)');
+
+      // 插件就绪（声明 nativeTheme）→ 任一路由/插件信号即自愈移除
+      loader.getActivePlugin = mock(() => ({
+        manifest: { capabilities: { nativeTheme: true } },
+      }) as any);
+      window.dispatchEvent(new Event('ipc:route-changed'));
+      expect(document.getElementById('wxrd-dark-mode-filter')).toBeNull();
+
+      // 切到未声明的站点 → 滤镜按需恢复（微信读书等仍依赖反色兜底）
+      loader.getActivePlugin = mock(() => ({
+        manifest: { capabilities: {} },
+      }) as any);
+      window.dispatchEvent(new Event('plugins-updated'));
+      expect(document.getElementById('wxrd-dark-mode-filter')?.textContent).toContain('invert(1)');
+
+      manager.destroy();
+      expect(document.getElementById('wxrd-dark-mode-filter')).toBeNull();
+    } finally {
+      loader.getActivePlugin = originalGetActive;
+      window.matchMedia = originalMatchMedia;
+    }
   });
 
   it('redirects named target links and window.open into the current window', () => {
