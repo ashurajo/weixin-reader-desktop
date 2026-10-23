@@ -23,7 +23,7 @@ import type {
 const DEDAO_RUNTIME_MANIFEST: PluginManifest = {
   id: 'dedao',
   name: '得到',
-  version: '0.1.0',
+  version: '1.0.0',
   description: '得到（dedao.cn）在线阅读（裸站接入，深浅主题由站点自身控制）',
   author: '艾特阅读团队',
   homepage: 'https://github.com/dengcb/weixin-reader-desktop',

@@ -6,7 +6,7 @@
  * （对标七猫插件，共享同一套 ColumnPaginator）：
  *
  * 1. 双栏模式：CSS 多栏分页（右工具栏「单双」键切换，偏好持久化）；
- * 2. 目录：工具栏「目录」键点击站点原生目录按钮，唤出原生抽屉；
+ * 2. 目录：工具栏「目录」键开关站点原生抽屉（开→点原生态关闭键，关→点目录键）；
  * 3. 深浅切换：站点仅有浅色，插件注入深色主题（「深浅」键切换）；
  * 4. 字体：工具栏「字体」键弹出左侧面板，滑杆调节字号（16~32 步进 2）
  *    与字形（粗=站方 509R / 中=506L / 细=504L，后两者为 CDN 反爬适配
@@ -138,7 +138,7 @@ const FONT_ICON = `
 const IREADER_RUNTIME_MANIFEST: PluginManifest = {
   id: 'ireader',
   name: '掌阅',
-  version: '0.2.0',
+  version: '1.0.0',
   description: '掌阅 PC 网页版网站支持插件（官方）',
   author: '艾特阅读团队',
   homepage: 'https://github.com/dengcb/weixin-reader-desktop',
