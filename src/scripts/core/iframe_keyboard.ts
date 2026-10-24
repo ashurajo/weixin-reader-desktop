@@ -34,7 +34,7 @@ const topLevelClientY = (event: MouseEvent, frame: Element): number => {
 };
 
 export const attachEventToSameOriginIframes = (
-  eventType: 'keydown' | 'mousemove',
+  eventType: 'keydown' | 'keyup' | 'mousemove',
   handler: (event: never) => void,
 ): (() => void) => {
   const instrumented = new WeakSet<HTMLIFrameElement>();
@@ -150,3 +150,8 @@ export const attachEventToSameOriginIframes = (
 export const attachKeyboardToSameOriginIframes = (
   handler: (event: KeyboardEvent) => void,
 ): (() => void) => attachEventToSameOriginIframes('keydown', handler as (event: never) => void);
+
+/** 书城切换浮层：按住修饰键期间焦点可能落入 iframe，keyup 必须同样可达 */
+export const attachKeyUpToSameOriginIframes = (
+  handler: (event: KeyboardEvent) => void,
+): (() => void) => attachEventToSameOriginIframes('keyup', handler as (event: never) => void);

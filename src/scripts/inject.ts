@@ -1,5 +1,10 @@
 import { AppRuntime } from './core/app_runtime';
 import { applyBootStyles } from './core/boot_styles';
+import {
+  isSiteSwitchNavigation,
+  showSiteSwitchLoading,
+  startupWindowFromGlobal,
+} from './core/site_switch_loading';
 import { attachEventToSameOriginIframes, attachKeyboardToSameOriginIframes } from './core/iframe_keyboard';
 import { log } from './core/logger';
 import { invoke, listen } from './core/tauri';
@@ -30,6 +35,14 @@ async function main(): Promise<void> {
   if ((window as any).wxrd_injected || (window as any).atreader_injected) return;
   (window as any).wxrd_injected = true;
   (window as any).atreader_injected = true;
+
+  // 书城切换过场层（启动动画同款）：所有切换路径由 Rust switch_to_site
+  // 程序化 navigate，referrer 为空——以此与站内跳转/刷新区分。必须在任何
+  // await 之前同步执行，才能赶在站点首绘前铺上过场。启动恢复的首屏不铺
+  // （启动窗口本身就是加载动画，避免看两次同样的动画）。
+  if (!startupWindowFromGlobal() && isSiteSwitchNavigation(window.location, document.referrer)) {
+    showSiteSwitchLoading(document);
+  }
 
   // 书店快捷键：Cmd/Ctrl + 1~7 按序号切换书店
   // Windows 菜单栏隐藏：Ctrl+H（macOS 不生效——Cmd+H 被系统保留）

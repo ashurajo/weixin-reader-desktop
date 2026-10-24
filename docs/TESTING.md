@@ -1,13 +1,13 @@
 # 测试与验收指南
 
-本文描述当前测试体系。最后核对日期：2026-10-09。
+本文描述当前测试体系。最后核对日期：2026-10-24。
 
 ## 当前结果
 
 | 层级 | 结果 | 说明 |
 |---|---:|---|
-| Bun DOM/契约测试 | 400 通过 | 46 个 TypeScript 测试文件，happy-dom + Tauri 静态契约 |
-| Rust 单元测试 | 100 通过 | 设置、阅读位置、插件安全、命令边界、启动/菜单/更新、语音翻页触发判定与 Tauri mock |
+| Bun DOM/契约测试 | 493 通过 | 53 个 TypeScript 测试文件，happy-dom + Tauri 静态契约 |
+| Rust 单元测试 | 109 通过 | 设置、阅读位置、插件安全、命令边界、启动/菜单/更新、语音翻页触发判定与 Tauri mock |
 | Rust 集成测试 | 6 通过 | `src-tauri/tests/plugin_test.rs` |
 | 真机硬件测试 | 1 忽略 | 需要真实 macOS 显示会话 |
 | 模拟 E2E | 6 通过 | Python Playwright + 临时 Chromium，本地 `test-page.html` |
@@ -68,6 +68,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked
 | `reading_position.test.ts` | 当前 URL 阅读位置 IPC 参数、空值和错误传播 |
 | `base_manager.test.ts` | 模块 ID、订阅/history 清理和幂等销毁 |
 | `chapter_manager.test.ts` | 章节 API、同书请求合并、20 本 LRU 缓存、迟到结果与中止清理、URL 和页数换算 |
+| `bookstore_switcher.test.ts` | 书城浮层状态机、循环高亮、松手提交、取消路径、双主题样式与 destroy 清理 |
 | `ipc_manager.test.ts` | 初始阅读路由、SPA history hook、滚动保存/取消 |
 | `menu_manager.test.ts` | 设置字段归属、原生菜单同步和 listener 释放 |
 | `app_manager.test.ts` | 自动翻页退出复位、独立位置恢复和旧值降级 |

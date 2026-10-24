@@ -96,6 +96,39 @@ export class ColumnPaginator {
     return this.enabled && document.body?.classList.contains(this.pagedClass) === true;
   }
 
+  /**
+   * 空白正文取证采样：分页器内部状态一次性导出，供插件诊断日志使用。
+   * contentConnected=false 意味着绑定的正文节点已被站点渲染替换且尚未重绑，
+   * 是「页码 1/1 + 正文以原生流渲染」这类症状的直接证据。
+   */
+  getStats(): {
+    enabled: boolean;
+    pagedClassApplied: boolean;
+    pageCount: number;
+    pageIndex: number;
+    chapterKey: string;
+    hasContent: boolean;
+    contentConnected: boolean;
+    viewportConnected: boolean;
+    scrollWidth: number;
+    clientWidth: number;
+    offset: string;
+  } {
+    return {
+      enabled: this.enabled,
+      pagedClassApplied: document.body?.classList.contains(this.pagedClass) === true,
+      pageCount: this.pageCount,
+      pageIndex: this.pageIndex,
+      chapterKey: this.chapterKey,
+      hasContent: this.content !== null,
+      contentConnected: this.content?.isConnected ?? false,
+      viewportConnected: this.viewport?.isConnected ?? false,
+      scrollWidth: this.content?.scrollWidth ?? -1,
+      clientWidth: this.content?.clientWidth ?? -1,
+      offset: this.content?.style.getPropertyValue('--atreader-page-offset') ?? '',
+    };
+  }
+
   isAtLastPage(): boolean {
     return this.pageIndex >= this.pageCount - 1;
   }

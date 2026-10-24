@@ -30,6 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "set_content_source_enabled",
             "claim_settings_target",
             "switch_bookstore_by_index",
+            "get_bookstore_list",
             "apply_site_zoom",
             "get_app_name",
             "get_app_version",

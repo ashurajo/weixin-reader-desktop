@@ -107,6 +107,22 @@ example-reader.atrd
 
 Manifest 还支持 `autoFlip`、`hideCursor`、`remoteControl`、`nativeTheme` 等能力。其中 `nativeTheme: true` 声明站点原生支持系统深浅色自适应：壳层不再为该站点注入强制反色滤镜和非阅读页背景兜底，深浅模式完全交给站点自身机制（如 zread 使用 next-themes 跟随系统）。未声明时壳层维持历史兜底行为，老插件不受影响。本文重点说明插件编辑器当前展示的六项站点能力。
 
+### 3.1 图标规范
+
+`icon` 字段是内嵌在 manifest 里的 data URI，会随 `.atrd` 分发，并经书城切换浮层等界面按 64×64（Retina 2 倍）显示：
+
+- **尺寸固定 128×128**（64 显示尺寸的 2 倍）。再大体积翻倍无肉眼收益，再小 Retina 屏上发虚。
+- **格式必须是 `data:image/png;base64,`**；ICO/JPEG/WebP 一律不接受。
+- 单图建议不超过 30 KB（base64 后约 40 KB）；纯色平面 logo 通常只有几 KB。
+
+**来源渠道（按顺序尝试）：**
+
+1. 站点 `apple-touch-icon`（≥128px 才算合格）；
+2. **站点找不到合格源时，标准做法是改用 App Store 官方图标**——搜索该站的官方 App，复制图标图床 URL（`artworkUrl512`，把结尾 `/512x512bb.jpg` 改为 `/512x512bb.png` 即得 PNG）。应用商店图标是官方品牌物料，比 favicon 清晰得多；注意挑选无促销角标、无节日换肤的常规版本（App Store 图标常带营销后缀，应用宝 `pp.myapp.com` 的 CDN 图通常是干净版）；
+3. 站点 favicon 只是最后的兜底，且 ICO favicon 通常只有 16/32px，**禁止直接使用**（起点、七猫首批图标即因此模糊）。
+
+抓取工具 `bun run icon:fetch <pluginId> [URL或本地PNG路径]` 会强制校验 128×128 PNG，站点源不合格时拒绝写入并打印上述 App Store 渠道的操作指引。统一尺寸命令：`sips -s format png -Z 128 源图 --out icon-128.png`。
+
 ## 4. 六项能力自声明规范
 
 固定能力键如下，大小写必须一致：

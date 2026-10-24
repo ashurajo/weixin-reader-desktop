@@ -33,7 +33,7 @@
 
 保留 `withGlobalTauri: true` 兼容现有页面脚本；安全边界由 Capability 和命令内部校验共同承担。
 
-## 当前 27 个命令
+## 当前 41 个命令
 
 ### main-runtime
 
@@ -46,6 +46,7 @@
 - `toggle_menu_bar`
 - `simulate_menu_click`
 - `switch_bookstore_by_index`
+- `get_bookstore_list`（书城切换浮层数据源，同时授权 local-reader）
 - `apply_site_zoom`
 - `get_app_name`
 - `get_settings`

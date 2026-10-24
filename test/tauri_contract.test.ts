@@ -232,6 +232,8 @@ describe('Tauri application contracts', () => {
     expect(localPage).toContain('id="pageProgress"');
     expect(localCapability.remote).toBeUndefined();
     expect(localCapability.permissions).toContain('allow-get-local-book');
+    // 书城切换浮层在本地阅读页与远程页共用同一命令
+    expect(localCapability.permissions).toContain('allow-get-bookstore-list');
     expect(localCapability.permissions).not.toContain('dialog:default');
     expect(config.bundle.resources['../third-party/foliate-js/LICENSE']).toBe(
       'licenses/foliate-js/LICENSE',
@@ -336,6 +338,7 @@ describe('Tauri application contracts', () => {
       'allow-reveal-menu-bar-transient',
       'allow-simulate-menu-click',
       'allow-switch-bookstore-by-index',
+      'allow-get-bookstore-list',
       'allow-apply-site-zoom',
       'allow-get-app-name',
       'allow-get-settings',

@@ -428,18 +428,14 @@ pub fn switch_bookstore_by_index<R: Runtime>(
     }
     let settings = crate::settings::read_settings(&app)
         .unwrap_or_else(|_| crate::settings::default_settings());
-    let mut site_ids = Vec::new();
-    if crate::sites::is_site_enabled(&settings, crate::sites::WEREAD.id) {
-        site_ids.push(crate::sites::WEREAD.id.to_string());
+    // 与菜单、书城切换浮层共用同一份有序站点；插件枚举失败时仍保留 weread
+    let site_ids: Vec<String> = match crate::plugin_manager::get_installed_plugins(&app) {
+        Ok(mut plugins) => crate::sites::ordered_enabled_sites(&settings, &mut plugins),
+        Err(_) => crate::sites::ordered_enabled_sites(&settings, &mut []),
     }
-    if let Ok(mut plugins) = crate::plugin_manager::get_installed_plugins(&app) {
-        crate::sites::sort_plugins_by_site_order(&settings, &mut plugins);
-        for plugin in plugins {
-            if plugin.site.is_some() && crate::sites::is_site_enabled(&settings, &plugin.id) {
-                site_ids.push(plugin.id);
-            }
-        }
-    }
+    .into_iter()
+    .map(|site| site.id)
+    .collect();
     // index 从 1 开始，转为 0-based
     if index >= 1 {
         if let Some(site_id) = site_ids.get((index - 1) as usize) {
@@ -447,6 +443,54 @@ pub fn switch_bookstore_by_index<R: Runtime>(
         }
     }
     Ok(())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BookstoreListItem {
+    pub id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    /// 1-based 序号，与 ⌘1~7 快捷键一致；仅前 7 项在前端渲染角标
+    pub index: usize,
+    pub current: bool,
+}
+
+/// 书城切换浮层的数据源：有序启用站点（菜单/⌘1~7 同一份序列）。
+/// 只暴露 id/name/icon/index/current 低敏字段，不含插件代码与本地路径。
+#[tauri::command]
+pub fn get_bookstore_list<R: Runtime>(
+    app: AppHandle<R>,
+    window: WebviewWindow<R>,
+) -> Result<Vec<BookstoreListItem>, String> {
+    if window.label() != "main" {
+        return Err("只有主窗口可以读取书城列表".to_string());
+    }
+    let settings = crate::settings::read_settings(&app)
+        .unwrap_or_else(|_| crate::settings::default_settings());
+    // 与菜单对勾同语义：未记录过站点时视为微信读书；指向 "local" 或已禁用
+    // 站点时匹配不到任何条目，浮层按「无当前站」处理（首按高亮第一项）。
+    let current = settings
+        .get("global")
+        .and_then(|global| global.get("lastSiteId"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(crate::sites::WEREAD.id)
+        .to_string();
+    let entries = match crate::plugin_manager::get_installed_plugins(&app) {
+        Ok(mut plugins) => crate::sites::ordered_enabled_sites(&settings, &mut plugins),
+        Err(_) => crate::sites::ordered_enabled_sites(&settings, &mut []),
+    };
+    Ok(entries
+        .into_iter()
+        .enumerate()
+        .map(|(offset, site)| BookstoreListItem {
+            icon: crate::plugin_installer::safe_icon_url(site.icon.as_deref()),
+            index: offset + 1,
+            current: site.id == current,
+            id: site.id,
+            name: site.name,
+        })
+        .collect())
 }
 
 /// 前端注入脚本初始化完成时调用，通知 Rust 端按当前站点应用缩放
@@ -464,7 +508,8 @@ pub fn is_main_fullscreen(app: AppHandle) -> bool {
 }
 
 #[tauri::command]
-pub fn apply_site_zoom(app: AppHandle, site_id: String) {
+/// 泛型化以便菜单 switch_to_site 在导航前同步调用（非 IPC 路径也复用）
+pub fn apply_site_zoom<R: Runtime>(app: AppHandle<R>, site_id: String) {
     let settings = crate::settings::read_settings(&app)
         .unwrap_or_else(|_| crate::settings::default_settings());
     let zoom = settings
@@ -1275,6 +1320,32 @@ mod tests {
         let result =
             tauri::async_runtime::block_on(get_runtime_plugin(app.handle().clone(), main)).unwrap();
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn bookstore_list_is_main_window_only_and_starts_with_weread() {
+        let app = tauri::test::mock_app();
+        let settings_window =
+            tauri::WebviewWindowBuilder::new(&app, "settings", Default::default())
+                .build()
+                .unwrap();
+        assert!(get_bookstore_list(app.handle().clone(), settings_window).is_err());
+
+        let main = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        let entries = get_bookstore_list(app.handle().clone(), main).unwrap();
+        assert_eq!(
+            entries.first().map(|entry| entry.id.as_str()),
+            Some("weread")
+        );
+        assert_eq!(entries.first().map(|entry| entry.name.as_str()), Some("微信读书"));
+        assert_eq!(entries.first().map(|entry| entry.index), Some(1));
+        // mock 环境无 lastSiteId 记录，按菜单语义视为微信读书
+        assert_eq!(entries.first().map(|entry| entry.current), Some(true));
+        for (offset, entry) in entries.iter().enumerate() {
+            assert_eq!(entry.index, offset + 1);
+        }
     }
 
     #[test]

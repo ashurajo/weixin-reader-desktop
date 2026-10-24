@@ -32,6 +32,7 @@
     "allow-reveal-menu-bar-transient",
     "allow-simulate-menu-click",
     "allow-switch-bookstore-by-index",
+    "allow-get-bookstore-list",
     "allow-apply-site-zoom",
     "allow-get-app-name",
     "allow-get-settings",

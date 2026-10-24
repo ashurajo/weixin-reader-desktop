@@ -2,6 +2,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { builtinPluginFactories } from '../../plugins/builtin';
 import { settleBootStyles } from '../core/boot_styles';
 import { AppManager } from '../managers/app_manager';
+import { BookstoreSwitcherManager } from '../managers/bookstore_switcher_manager';
 import { IPCManager } from '../managers/ipc_manager';
 import { LinkManager } from '../managers/link_manager';
 import { MenuManager } from '../managers/menu_manager';
@@ -87,6 +88,8 @@ export class AppRuntime {
     create('LinkManager', () => new LinkManager());
     create('TurnerManager', () => new TurnerManager());
     create('RemoteManager', () => new RemoteManager());
+    // 书城切换浮层（macOS Cmd+Tab 语义）：远程站点页与本地阅读页共用
+    create('BookstoreSwitcherManager', () => new BookstoreSwitcherManager());
     // 反色滤镜是给首页不支持深浅自适应的站点（微信读书、番茄小说）兜底的；
     // 站点在 manifest 声明 nativeTheme 时交给站点自身机制，不注入。
     const active = getPluginLoader().getActivePlugin();

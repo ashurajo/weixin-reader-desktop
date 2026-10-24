@@ -190,6 +190,7 @@ export class IreaderPlugin implements ReaderPlugin {
 
   private api: PluginAPI | null = null;
   private paginator: ColumnPaginator | null = null;
+  private diagnosticsTimers: number[] = [];
   private cleanupFunctions: Array<() => void> = [];
   private restoreGeneration = 0;
   private positionReady = false;
@@ -261,6 +262,8 @@ export class IreaderPlugin implements ReaderPlugin {
   onUnload(): void {
     this.restoreGeneration++;
     this.clearWheelState();
+    for (const timer of this.diagnosticsTimers) window.clearTimeout(timer);
+    this.diagnosticsTimers = [];
     if (this.pinTimer !== null) {
       window.clearInterval(this.pinTimer);
       this.pinTimer = null;
@@ -711,6 +714,60 @@ export class IreaderPlugin implements ReaderPlugin {
     return this.fontStep === FONT_NATIVE_INDEX && this.weightIndex === 0;
   }
 
+  /*!
+   * 预加载反爬字体：@font-face 只有被正文命中才开始下载，而掌阅正文由
+   * chapter-content API 在页面加载 ~2 秒后才插入——swap 期间 PUA 码位在
+   * 回退字体里没有字形，表现为「导航栏在、正文空白」。preload 让字体与
+   * 文档并行下载，正文出现时字体已就绪。
+   */
+  private ensureFontPreload(): void {
+    const weight = FONT_WEIGHTS[this.weightIndex];
+    if (!weight?.url) return;
+    if (document.head?.querySelector(`link[rel="preload"][href="${weight.url}"]`)) return;
+    const link = document.createElement('link');
+    link.rel = 'preload';
+    link.as = 'font';
+    link.type = 'font/ttf';
+    link.crossOrigin = 'anonymous';
+    link.href = weight.url;
+    (document.head ?? document.documentElement).appendChild(link);
+  }
+
+  /*!
+   * 空白正文取证采样：正文 p 数/字符数（API 是否回填）、滚动宽度（PUA 字形
+   * 是否占位）、页码指示器（分页器把视口停在空栏还是 1/1）、字体就绪状态。
+   * 用户复现「正文空白」时日志可直接指认是哪条分支。每次进阅读页采样两次。
+   */
+  private scheduleContentDiagnostics(): void {
+    if (this.diagnosticsTimers.length > 0) {
+      for (const timer of this.diagnosticsTimers) window.clearTimeout(timer);
+      this.diagnosticsTimers = [];
+    }
+    for (const delay of [2500, 6000]) {
+      this.diagnosticsTimers.push(window.setTimeout(() => this.logContentDiagnostics(), delay));
+    }
+  }
+
+  private logContentDiagnostics(): void {
+    if (!this.api || !this.isReaderPage()) return;
+    const content = document.querySelector<HTMLElement>(IREADER_CONTENT_SELECTOR);
+    const indicator = document.querySelector<HTMLElement>('.atreader-ireader-page-indicator');
+    const weight = FONT_WEIGHTS[this.weightIndex];
+    const fontReady = weight?.family
+      ? (document.fonts?.check(`28px '${weight.family}'`) ?? false)
+      : true;
+    const stats = this.paginator?.getStats();
+    this.api.log.info(
+      `[Ireader] diagnose p=${content?.querySelectorAll('p').length ?? -1}`
+      + ` chars=${content?.textContent?.length ?? -1}`
+      + ` scrollWidth=${content?.scrollWidth ?? -1}`
+      + ` pages=${indicator?.textContent ?? '?'}`
+      + ` fonts=${document.fonts?.status ?? '?'} check=${fontReady}`
+      + ` weight=${this.weightIndex}`
+      + ` pager=${stats ? JSON.stringify(stats) : 'null'}`,
+    );
+  }
+
   private readonly toggleDark = (): void => {
     const api = this.api;
     if (!api) return;
@@ -1030,6 +1087,9 @@ export class IreaderPlugin implements ReaderPlugin {
     this.toolbar?.classList.toggle('atreader-ireader-toolbar-hidden', hideToolbar);
     if (hideToolbar) this.removeFontPanel();
     this.syncToolbar();
+
+    this.ensureFontPreload();
+    this.scheduleContentDiagnostics();
   }
 
   private applyStyleFile(id: string, css: string, enabled: boolean): void {

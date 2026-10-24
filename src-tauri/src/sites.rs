@@ -1,4 +1,5 @@
 use crate::plugin_manager;
+use base64::Engine as _;
 use regex::Regex;
 use tauri::{AppHandle, Runtime};
 
@@ -53,6 +54,70 @@ pub fn sort_plugins_by_site_order(
         let rank_b = rank.get(b.id.as_str()).copied().unwrap_or(usize::MAX);
         rank_a.cmp(&rank_b).then_with(|| a.id.cmp(&b.id))
     });
+}
+
+/// 菜单、⌘1~7 快捷键与书城切换浮层共用的有序站点条目。
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnabledSiteEntry {
+    pub id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    pub home_url: String,
+}
+
+/// 微信读书官方图标（App Store 当前版本 180px PNG，与官网 apple-touch-icon
+/// 同设计），编译期内嵌，书城切换浮层经 get_bookstore_list 下发。
+const WEREAD_ICON_PNG: &[u8] = include_bytes!("../../weread-icon.png");
+
+/// 内置站点（微信读书）条目；启用时排在在线来源第一位。
+fn builtin_enabled_site(settings: &serde_json::Value) -> Option<EnabledSiteEntry> {
+    if !is_site_enabled(settings, WEREAD.id) {
+        return None;
+    }
+    let name = plugin_manager::RESERVED_PLUGIN_IDS
+        .iter()
+        .find(|(id, _)| *id == WEREAD.id)
+        .map(|(_, name)| (*name).to_string())
+        .unwrap_or_else(|| WEREAD.id.to_string());
+    let icon = format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(WEREAD_ICON_PNG)
+    );
+    Some(EnabledSiteEntry {
+        id: WEREAD.id.to_string(),
+        name,
+        icon: Some(icon),
+        home_url: WEREAD.home_url.to_string(),
+    })
+}
+
+/// 有序启用站点列表：weread 启用则排第一，其余插件经 siteOrder 排序后
+/// 过滤「有 site 配置且启用」。菜单、switch_bookstore_by_index 与
+/// get_bookstore_list 必须共用本函数，禁止各自重排。
+pub fn ordered_enabled_sites(
+    settings: &serde_json::Value,
+    plugins: &mut [plugin_manager::PluginInfo],
+) -> Vec<EnabledSiteEntry> {
+    let mut entries = Vec::new();
+    if let Some(builtin) = builtin_enabled_site(settings) {
+        entries.push(builtin);
+    }
+    sort_plugins_by_site_order(settings, plugins);
+    for plugin in plugins.iter() {
+        let Some(site) = plugin.site.as_ref() else {
+            continue;
+        };
+        if !is_site_enabled(settings, &plugin.id) {
+            continue;
+        }
+        entries.push(EnabledSiteEntry {
+            id: plugin.id.clone(),
+            name: plugin.name.clone(),
+            icon: plugin.icon.clone(),
+            home_url: site.home_url.clone(),
+        });
+    }
+    entries
 }
 
 fn resolve_plugin_home_url(
@@ -246,6 +311,63 @@ mod tests {
         sort_plugins_by_site_order(&json!({}), &mut plugins);
         let ids: Vec<&str> = plugins.iter().map(|item| item.id.as_str()).collect();
         assert_eq!(ids, vec!["fanqie", "qimao", "zread"]);
+    }
+
+    #[test]
+    fn ordered_sites_put_weread_first_and_honor_site_order() {
+        let settings = json!({ "global": { "siteOrder": ["zread", "qimao"] } });
+        let mut plugins = vec![
+            plugin("qidian", "https://qidian.example/", true),
+            plugin("zread", "https://zread.example/", true),
+            plugin("qimao", "https://qimao.example/", true),
+        ];
+        let entries = ordered_enabled_sites(&settings, &mut plugins);
+        let ids: Vec<&str> = entries.iter().map(|entry| entry.id.as_str()).collect();
+        assert_eq!(ids, vec!["weread", "zread", "qimao", "qidian"]);
+        assert_eq!(entries[0].name, "微信读书");
+        assert_eq!(entries[0].home_url, "https://weread.qq.com/");
+        assert!(
+            entries[0]
+                .icon
+                .as_deref()
+                .is_some_and(|icon| icon.starts_with("data:image/png;base64,"))
+        );
+    }
+
+    #[test]
+    fn ordered_sites_filter_disabled_and_siteless_plugins() {
+        let settings = json!({ "global": { "enabledPlugins": ["fanqie"] } });
+        let mut plugins = vec![
+            plugin("fanqie", "https://fanqie.example/", true),
+            plugin("qimao", "https://qimao.example/", true),
+            plugin("siteless", "https://unused.example/", false),
+        ];
+        let entries = ordered_enabled_sites(&settings, &mut plugins);
+        let ids: Vec<&str> = entries.iter().map(|entry| entry.id.as_str()).collect();
+        assert_eq!(ids, vec!["fanqie"]);
+    }
+
+    #[test]
+    fn ordered_sites_yield_weread_even_when_plugin_enumeration_is_empty() {
+        let entries = ordered_enabled_sites(&json!({}), &mut []);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].id, "weread");
+        let settings = json!({ "global": { "enabledPlugins": ["fanqie"] } });
+        assert!(ordered_enabled_sites(&settings, &mut []).is_empty());
+    }
+
+    #[test]
+    fn ordered_sites_carry_plugin_icon_through() {
+        let mut fanqie = plugin("fanqie", "https://fanqie.example/", true);
+        fanqie.icon = Some("data:image/png;base64,abc".to_string());
+        let mut plugins = vec![fanqie];
+        let settings = json!({ "global": { "enabledPlugins": ["fanqie"] } });
+        let entries = ordered_enabled_sites(&settings, &mut plugins);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries[0].icon.as_deref(),
+            Some("data:image/png;base64,abc")
+        );
     }
 
     #[test]

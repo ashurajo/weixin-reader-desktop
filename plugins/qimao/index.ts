@@ -105,6 +105,7 @@ export class QimaoPlugin implements ReaderPlugin {
   private wheelCooldownTimer: ReturnType<typeof setTimeout> | null = null;
   private wheelCooldown = false;
   private doubleColumnEnabled = true;
+  private diagnosticsTimers: number[] = [];
   private layoutToggleButton: HTMLLIElement | null = null;
   private toolbarObserver: MutationObserver | null = null;
   private toolbarSyncFrame: number | null = null;
@@ -146,6 +147,8 @@ export class QimaoPlugin implements ReaderPlugin {
   onUnload(): void {
     this.restoreGeneration++;
     this.clearWheelState();
+    for (const timer of this.diagnosticsTimers) window.clearTimeout(timer);
+    this.diagnosticsTimers = [];
     this.stopToolbarEnhancement();
     this.paginator?.destroy();
     this.paginator = null;
@@ -437,6 +440,8 @@ export class QimaoPlugin implements ReaderPlugin {
     if (doubleColumn) this.paginator?.enable();
     else this.paginator?.disable();
     this.syncLayoutToggle();
+
+    this.scheduleContentDiagnostics();
   }
 
   private async restoreLayoutPreference(api: PluginAPI): Promise<void> {
@@ -448,6 +453,37 @@ export class QimaoPlugin implements ReaderPlugin {
       void api.storage.set(LAYOUT_PREFERENCE_KEY, this.doubleColumnEnabled);
     }
     this.applySettings(api.settings.getAll());
+  }
+
+  /*!
+   * 空白/单列正文取证采样：正文节点数（站点水合可能产生双副本）、节点是否
+   * 仍连在文档上（被站点替换而未重绑的直接证据）、分页器内部状态、页码
+   * 指示器。用户复现「单列/空白」时日志可直接指认分支。每次进阅读页采样两次。
+   */
+  private scheduleContentDiagnostics(): void {
+    if (this.diagnosticsTimers.length > 0) {
+      for (const timer of this.diagnosticsTimers) window.clearTimeout(timer);
+      this.diagnosticsTimers = [];
+    }
+    for (const delay of [2500, 6000]) {
+      this.diagnosticsTimers.push(window.setTimeout(() => this.logContentDiagnostics(), delay));
+    }
+  }
+
+  private logContentDiagnostics(): void {
+    if (!this.api || !this.isReaderPage()) return;
+    const contents = document.querySelectorAll<HTMLElement>(QIMAO_CONTENT_SELECTOR);
+    const first = contents[0] ?? null;
+    const indicator = document.querySelector<HTMLElement>('.atreader-qimao-page-indicator');
+    const stats = this.paginator?.getStats();
+    this.api.log.info(
+      `[Qimao] diagnose nodes=${contents.length}`
+      + ` p=${first?.querySelectorAll('p').length ?? -1}`
+      + ` chars=${first?.textContent?.length ?? -1}`
+      + ` firstConnected=${first?.isConnected ?? false}`
+      + ` indicator=${indicator?.textContent ?? '?'}`
+      + ` pager=${stats ? JSON.stringify(stats) : 'null'}`,
+    );
   }
 
   private startToolbarEnhancement(): void {

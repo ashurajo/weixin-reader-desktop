@@ -6,7 +6,10 @@
  */
 
 import { describe, it, expect, afterEach } from 'bun:test';
-import { attachKeyboardToSameOriginIframes } from '../iframe_keyboard';
+import {
+  attachKeyboardToSameOriginIframes,
+  attachKeyUpToSameOriginIframes,
+} from '../iframe_keyboard';
 
 const stubIframeDocument = (iframe: HTMLIFrameElement): Document => {
   const doc = document.implementation.createHTMLDocument('iframe');
@@ -79,6 +82,54 @@ describe('attachKeyboardToSameOriginIframes', () => {
     detach();
 
     doc.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(fired).toBe(0);
+  });
+});
+
+describe('attachKeyUpToSameOriginIframes', () => {
+  const created: HTMLIFrameElement[] = [];
+  const detachers: Array<() => void> = [];
+
+  const makeIframe = (): HTMLIFrameElement => {
+    const iframe = document.createElement('iframe');
+    created.push(iframe);
+    document.body.append(iframe);
+    return iframe;
+  };
+
+  afterEach(() => {
+    detachers.splice(0).forEach(detach => detach());
+    created.splice(0).forEach(iframe => iframe.remove());
+  });
+
+  it('iframe 文档内的 keyup 可达处理器（书城浮层松手依赖）', () => {
+    const iframe = makeIframe();
+    const doc = stubIframeDocument(iframe);
+    const keys: string[] = [];
+    detachers.push(attachKeyUpToSameOriginIframes(event => keys.push(event.key)));
+
+    doc.dispatchEvent(new KeyboardEvent('keyup', { key: 'Meta', bubbles: true }));
+    expect(keys).toEqual(['Meta']);
+  });
+
+  it('keydown 不经 keyup 转发器（各事件各管各的）', () => {
+    const iframe = makeIframe();
+    const doc = stubIframeDocument(iframe);
+    let fired = 0;
+    detachers.push(attachKeyUpToSameOriginIframes(() => { fired += 1; }));
+
+    doc.dispatchEvent(new KeyboardEvent('keydown', { key: 'l', bubbles: true }));
+    expect(fired).toBe(0);
+  });
+
+  it('清理后不再触发', () => {
+    const iframe = makeIframe();
+    const doc = stubIframeDocument(iframe);
+    let fired = 0;
+    const detach = attachKeyUpToSameOriginIframes(() => { fired += 1; });
+    detach();
+
+    doc.dispatchEvent(new KeyboardEvent('keyup', { key: 'Control', bubbles: true }));
     expect(fired).toBe(0);
   });
 });

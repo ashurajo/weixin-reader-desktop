@@ -270,27 +270,23 @@ pub fn set_edit_menu_visible<R: Runtime>(app: &AppHandle<R>, visible: bool) {
 
 /// 获取已安装插件的网站菜单项
 fn get_plugin_site_items<R: Runtime>(handle: &tauri::AppHandle<R>) -> Vec<PluginSiteMenuItem> {
-    let mut items = Vec::new();
     let settings = settings::read_settings(handle).unwrap_or_else(|_| settings::default_settings());
 
     // 只显示当前启用的外部插件；被禁用的站点不能从菜单重新打开。
-    // 展示顺序跟随设置页拖拽写入的 siteOrder，与 ⌘1~7 快捷键映射保持一致。
-    if let Ok(mut plugins) = plugin_manager::get_installed_plugins(handle) {
-        sites::sort_plugins_by_site_order(&settings, &mut plugins);
-        for plugin in plugins {
-            if sites::is_site_enabled(&settings, &plugin.id) {
-                if let Some(site) = plugin.site {
-                    items.push(PluginSiteMenuItem {
-                        id: format!("switch_site_{}", plugin.id),
-                        name: plugin.name,
-                        url: site.home_url,
-                    });
-                }
-            }
-        }
+    // 展示顺序与 ⌘1~7 快捷键、书城切换浮层共用 ordered_enabled_sites 单点。
+    match plugin_manager::get_installed_plugins(handle) {
+        Ok(mut plugins) => sites::ordered_enabled_sites(&settings, &mut plugins)
+            .into_iter()
+            // weread 由 build_sources_menu 单独置于首位，不进入插件菜单项
+            .filter(|site| site.id != sites::WEREAD.id)
+            .map(|site| PluginSiteMenuItem {
+                id: format!("switch_site_{}", site.id),
+                name: site.name,
+                url: site.home_url,
+            })
+            .collect(),
+        Err(_) => Vec::new(),
     }
-
-    items
 }
 
 /// 构建「在线来源」子菜单。
@@ -442,6 +438,10 @@ pub fn switch_to_site<R: Runtime>(app: &tauri::AppHandle<R>, site_id: &str) {
             // 不会自动复位。先恢复系统跟随，避免新站点按泄漏的假主题首屏
             // 渲染（matchMedia 被劫持）后再闪烁修正。
             let _ = win.set_theme(None);
+            // 目标站缩放在导航前设好（zoom 是 webview 级属性）：新文档首帧
+            // 即最终缩放，切换过场层不会在注入运行时中途 apply_site_zoom
+            // 时被整体放大/缩小一次。注入层的 apply_site_zoom 随后幂等重设。
+            crate::commands::apply_site_zoom(app.clone(), site_id.to_string());
             match url.parse::<tauri::Url>() {
                 Ok(u) => {
                     let _ = win.navigate(u);

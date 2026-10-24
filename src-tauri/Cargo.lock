@@ -5491,6 +5491,7 @@ dependencies = [
 name = "weixin-reader"
 version = "1.9.3"
 dependencies = [
+ "base64 0.22.1",
  "block2",
  "encoding_rs",
  "log",

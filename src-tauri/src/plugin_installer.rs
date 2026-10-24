@@ -35,7 +35,7 @@ pub struct PluginInstallPreview {
     pub replaces_existing: bool,
 }
 
-fn safe_icon_url(value: Option<&str>) -> Option<String> {
+pub(crate) fn safe_icon_url(value: Option<&str>) -> Option<String> {
     let value = value?.trim();
     const SAFE_DATA_IMAGE_PREFIXES: &[&str] = &[
         "data:image/png",

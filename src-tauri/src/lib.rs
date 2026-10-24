@@ -389,10 +389,20 @@ pub fn run() {
             let inject_script = {
                 let boot_settings = settings::read_settings(app.handle())
                     .unwrap_or_else(|_| settings::default_settings());
+                // 启动时间戳：前端过场层用它区分「启动恢复的首个页面」（启动
+                // 窗口本身就是加载动画，不重复铺过场）与「手动切换书城」。
+                let launched_at = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or(0);
                 let boot_script = commands::build_boot_snapshot(app.handle(), &boot_settings)
                     .ok()
                     .flatten()
-                    .map(|snapshot| format!("window.__ATREADER_BOOT__={snapshot};\n"))
+                    .map(|snapshot| {
+                        format!(
+                            "window.__ATREADER_BOOT__={snapshot};window.__ATREADER_BOOT__.launchedAt={launched_at};\n"
+                        )
+                    })
                     .unwrap_or_default();
                 format!("{boot_script}{}", inject_script)
             };
@@ -695,6 +705,7 @@ pub fn run() {
             commands::set_content_source_enabled,
             menu::claim_settings_target,
             commands::switch_bookstore_by_index,
+            commands::get_bookstore_list,
             commands::apply_site_zoom,
             commands::get_app_name,
             commands::get_app_version,
