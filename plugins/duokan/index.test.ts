@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 import type { PluginManifest } from '../../src/scripts/core/plugin_types';
 import { DuokanPlugin } from './index';
 
@@ -18,6 +18,8 @@ const withManifestDomain = (plugin: DuokanPlugin, domain: string[]): void => {
 describe('DuokanPlugin', () => {
   afterEach(() => {
     history.replaceState({}, '', '/');
+    document.body.id = '';
+    document.body.replaceChildren();
   });
 
   it('清单契约：裸站 + 翻页桥接——仅声明 autoFlip', () => {
@@ -27,6 +29,7 @@ describe('DuokanPlugin', () => {
     expect(plugin.manifest.site?.homeUrl).toBe('https://www.duokan.com/pc/');
     expect(plugin.manifest.site?.readerPattern).toBe('/reader/www/app\\.html');
     expect(plugin.manifest.capabilities.autoFlip).toBe(true);
+    expect(plugin.manifest.capabilities.nativeTheme).toBe(true);
     expect(plugin.manifest.capabilities.doubleColumn).toBeUndefined();
     expect(plugin.manifest.capabilities.hideToolbar).toBeUndefined();
     expect(plugin.manifest.capabilities.chapterNav).toBeUndefined();
@@ -56,6 +59,41 @@ describe('DuokanPlugin', () => {
     history.replaceState({}, '', '/pc/');
     expect(plugin.isReaderPage()).toBe(false);
     expect(plugin.isHomePage()).toBe(true);
+  });
+
+  it('双页对开默认：单页态点击一次阅读模式键，双页态不干预，处理后不再重复', () => {
+    history.replaceState({}, '', '/reader/www/app.html?id=ed873c9e');
+    document.body.id = 'vertical_reader';
+    const patternClick = mock(() => undefined);
+    const pattern = document.createElement('span');
+    pattern.className = 'j-pattern';
+    pattern.addEventListener('click', patternClick);
+    document.body.append(pattern);
+
+    const plugin = new DuokanPlugin();
+    plugin.onLoad();
+    expect(patternClick).toHaveBeenCalledTimes(1);
+
+    // 处理过后即使模式再变化也不再干预（用户手动切单页不被翻回）
+    document.body.id = 'vertical_reader';
+    plugin.onLoad();
+    expect(patternClick).toHaveBeenCalledTimes(1);
+    plugin.onUnload();
+  });
+
+  it('双页对开默认：已是 horizontal_reader 时不点击', () => {
+    history.replaceState({}, '', '/reader/www/app.html?id=ed873c9e');
+    document.body.id = 'horizontal_reader';
+    const patternClick = mock(() => undefined);
+    const pattern = document.createElement('span');
+    pattern.className = 'j-pattern';
+    pattern.addEventListener('click', patternClick);
+    document.body.append(pattern);
+
+    const plugin = new DuokanPlugin();
+    plugin.onLoad();
+    expect(patternClick).not.toHaveBeenCalled();
+    plugin.onUnload();
   });
 
   it('翻页桥接：阅读页上派发合成 ←/→ 方向键，非阅读页不派发', () => {
