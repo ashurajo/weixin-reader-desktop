@@ -24,6 +24,13 @@ import type {
   PluginStyles,
   ReaderPlugin,
 } from '../../src/scripts/core/plugin_types';
+// api.log 是 console-only 实现（core/logger.ts），落文件诊断必须走 logToFile
+import { logToFile } from '../../src/scripts/core/tauri';
+import { setSiteReadinessProbe } from '../../src/scripts/core/site_switch_loading';
+import {
+  armReaderEntryWatchdog,
+  stylesheetsReady,
+} from '../shared/reader_entry_watchdog';
 import {
   ColumnPaginator,
   calculateSpreadMetrics,
@@ -44,6 +51,13 @@ const SCROLLABLE_OVERFLOW_Y = new Set(['auto', 'scroll', 'overlay']);
 const LAYOUT_PREFERENCE_KEY = 'double-column-enabled';
 const READER_INDEX_PATTERN = /\/reader\/index\/\d+/;
 const CHAPTER_PATH_PATTERN = /^\/shuku\/\d+-\d+/;
+/// 七猫站点自己的阅读偏好存储键（主题/字号/字体，站点 JS 启动时应用到
+/// .reader-layout-theme[data-theme] 与正文类模板）。开机守卫据此兜底
+/// （见 startBootGuard）。
+const QIMAO_READER_SETTING_KEY = 'qimao_reader_setting_data';
+/// 开机守卫轮询窗口：300ms × 40 = 12s，覆盖站点冷启动慢的首次加载
+const BOOT_GUARD_TICK_MS = 300;
+const BOOT_GUARD_MAX_TICKS = 40;
 
 const SINGLE_COLUMN_ICON = `
   <svg width="24" height="24" viewBox="0 0 24 24"
@@ -65,7 +79,7 @@ const DOUBLE_COLUMN_ICON = `
 const QIMAO_RUNTIME_MANIFEST: PluginManifest = {
   id: 'qimao',
   name: '七猫小说',
-  version: '1.0.0',
+  version: '1.0.1',
   description: '七猫小说网站支持插件（官方）',
   author: '艾特阅读团队',
   homepage: 'https://github.com/dengcb/weixin-reader-desktop',
@@ -110,6 +124,8 @@ export class QimaoPlugin implements ReaderPlugin {
   private toolbarObserver: MutationObserver | null = null;
   private toolbarSyncFrame: number | null = null;
   private toolbarBootstrapTimer: ReturnType<typeof setInterval> | null = null;
+  private bootGuardTimer: ReturnType<typeof setInterval> | null = null;
+  private bootGuardTicks = 0;
 
   onLoad(api: PluginAPI): void {
     this.api = api;
@@ -123,6 +139,9 @@ export class QimaoPlugin implements ReaderPlugin {
       contentSelector: QIMAO_CONTENT_SELECTOR,
       getChapterKey: () => this.getChapterKey(),
       onChapterChange: chapterKey => this.restoreChapterPosition(chapterKey),
+      onAnomaly: detail => {
+        logToFile(`[Qimao] anomaly ${detail} chapterKey=${this.getChapterKey()}`);
+      },
       onPositionChange: (pageIndex, pageCount) => {
         if (!this.positionReady || pageCount <= 0) return;
         const ratio = pageCount <= 1 ? 0 : pageIndex / (pageCount - 1);
@@ -141,6 +160,25 @@ export class QimaoPlugin implements ReaderPlugin {
     this.cleanupFunctions.push(unsubscribe);
     this.startToolbarEnhancement();
     this.applySettings(api.settings.getAll());
+    // 进页失速看门狗 + 过场层就绪探针。就绪判据 = 分页器绑定 + 正文段落
+    // 存在（与七猫健康态一致；不要加背景色检查——他们正文容器本来就是
+    // 透明的，背景在站点别处）。站点开机守卫同样只作用于阅读页。
+    if (this.isReaderPage()) {
+      const presented = (): boolean =>
+        stylesheetsReady(document)
+        && !!document.querySelector(`${QIMAO_CONTENT_SELECTOR} p`);
+      setSiteReadinessProbe(presented);
+      armReaderEntryWatchdog({
+        pluginId: 'qimao',
+        isReady: presented,
+        // 七猫是 SSR：正文不在首屏 HTML 里 = 该页已废（服务端内容缺失），
+        // 失速判定不需要 10s 那么斯文——2026-10-25 实测用户在 9s 时自己切走，
+        // 看门狗差 1 秒没来得及救。4s 立即重载一次。
+        timeoutMs: 4000,
+        log: message => logToFile(`[Qimao] ${message}`),
+      });
+      this.startBootGuard();
+    }
     void this.restoreLayoutPreference(api);
   }
 
@@ -149,6 +187,7 @@ export class QimaoPlugin implements ReaderPlugin {
     this.clearWheelState();
     for (const timer of this.diagnosticsTimers) window.clearTimeout(timer);
     this.diagnosticsTimers = [];
+    this.stopBootGuard();
     this.stopToolbarEnhancement();
     this.paginator?.destroy();
     this.paginator = null;
@@ -456,33 +495,166 @@ export class QimaoPlugin implements ReaderPlugin {
   }
 
   /*!
-   * 空白/单列正文取证采样：正文节点数（站点水合可能产生双副本）、节点是否
-   * 仍连在文档上（被站点替换而未重绑的直接证据）、分页器内部状态、页码
-   * 指示器。用户复现「单列/空白」时日志可直接指认分支。每次进阅读页采样两次。
+   * 站点开机守卫（重断言两类「开机没写完」的站点状态，均为 2026-10-25
+   * 真机/干净浏览器实证的同一类故障：站点 JS 冷启动偶发把模板应用跑丢）：
+   *
+   * 1. 阅读主题：七猫把主题（default/blue/yellow/green/red/dark）存在
+   *    localStorage 的 qimao_reader_setting_data，由站点 JS 启动时写到
+   *    .reader-layout-theme[data-theme]——偶发不落地，用户看到「设置过
+   *    夜间但进页是白底」（壳层在七猫上不注入任何主题：manifest 声明
+   *    nativeTheme 完全让位）。读站点自己的存储代写一次属性。
+   * 2. 正文类模板：偶发正文元素一个类都没写（variant-inventory 实锤：
+   *    .chapter-detail-wrap-content > DIV.(无类) > .article，健康形态是
+   *    .chapter-detail-article.font-18）——站点排版 CSS 失效呈全宽单列，
+   *    插件选择器/探针/分页器也全部失明。正文已渲染时按结构定位该元素，
+   *    补写 chapter-detail-article 与存储推导的 font-N 字号类；类一回来，
+   *    分页器完整性轮询与过场探针即刻恢复视野。
+   *
+   * 两项都只写「站点本该自己写的」属性/类，无结构改动；站点启动正常时
+   * 全部空转收工。轮询 300ms × 40 = 12s 后放弃（超时说明是别的故障）。
+   */
+  private startBootGuard(): void {
+    if (this.bootGuardTimer !== null) return;
+    this.bootGuardTicks = 0;
+    this.bootGuardTimer = setInterval(() => {
+      this.bootGuardTicks++;
+      if (this.bootGuardTicks > BOOT_GUARD_MAX_TICKS || !this.isReaderPage()) {
+        this.stopBootGuard();
+        return;
+      }
+      const themeDone = this.reassertThemeAttr();
+      const articleDone = this.reassertArticleClass();
+      if (themeDone && articleDone) this.stopBootGuard();
+    }, BOOT_GUARD_TICK_MS);
+  }
+
+  /** @returns true = 该项已收工（已落地/代写完成/无事可做） */
+  private reassertThemeAttr(): boolean {
+    const host = document.querySelector<HTMLElement>('.reader-layout-theme');
+    if (!host) return false; // 站点容器未挂载：继续等
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem(QIMAO_READER_SETTING_KEY);
+    } catch {
+      return true; // 存储不可用：无从得知站点偏好
+    }
+    if (!stored) return true; // 无站点阅读偏好：主题本就是站点默认
+    let theme: unknown;
+    try {
+      theme = JSON.parse(stored)?.theme;
+    } catch {
+      return true; // 存储格式非预期：不干预
+    }
+    if (typeof theme !== 'string' || theme.length === 0) return true;
+    if (host.getAttribute('data-theme') === theme) return true; // 已自行落地
+    host.setAttribute('data-theme', theme);
+    logToFile(`[Qimao] boot guard reasserted data-theme=${theme}`);
+    return true;
+  }
+
+  /** @returns true = 该项已收工（已就位/补写完成/正文未渲染不归本守卫管） */
+  private reassertArticleClass(): boolean {
+    // 正文未渲染（.article 不存在）= 内容缺失，是看门狗的管辖范围
+    const inner = document.querySelector<HTMLElement>(
+      '.chapter-detail-wrap-content .article',
+    );
+    if (!inner) return true;
+    const article = inner.parentElement;
+    if (!article) return true;
+    if (article.classList.contains('chapter-detail-article')) return true; // 已就位
+    // 结构不符（类元素不在预期容器下）：不动，避免误伤未知形态
+    if (!article.parentElement?.classList.contains('chapter-detail-wrap-content')) {
+      return true;
+    }
+    article.classList.add('chapter-detail-article');
+    // 字号类从站点自身存储重建（font-18 等），缺失时站点字号样式不生效
+    try {
+      const size = JSON.parse(
+        localStorage.getItem(QIMAO_READER_SETTING_KEY) ?? 'null',
+      )?.fontSize;
+      if (typeof size === 'string' && /^\d+$/.test(size)) {
+        article.classList.add(`font-${size}`);
+      }
+    } catch {
+      // 存储不可用：只补布局类
+    }
+    logToFile('[Qimao] boot guard reasserted chapter-detail-article (site class template missing)');
+    return true;
+  }
+
+  private stopBootGuard(): void {
+    if (this.bootGuardTimer !== null) {
+      clearInterval(this.bootGuardTimer);
+      this.bootGuardTimer = null;
+    }
+    this.bootGuardTicks = 0;
+  }
+
+  /*!
+   * 失败取证采样：健康加载零输出；进页 5 秒后仍无正文（服务端内容缺失或
+   * 类模板变体）才写一次诊断与变体结构采样——「正文可见但 nodes=0」时
+   * variant-inventory 会给出正文实际所在结构，供分页器自适应绑定。
    */
   private scheduleContentDiagnostics(): void {
     if (this.diagnosticsTimers.length > 0) {
       for (const timer of this.diagnosticsTimers) window.clearTimeout(timer);
       this.diagnosticsTimers = [];
     }
-    for (const delay of [2500, 6000]) {
-      this.diagnosticsTimers.push(window.setTimeout(() => this.logContentDiagnostics(), delay));
-    }
+    this.diagnosticsTimers.push(window.setTimeout(() => this.logContentDiagnostics(), 5000));
   }
 
   private logContentDiagnostics(): void {
     if (!this.api || !this.isReaderPage()) return;
     const contents = document.querySelectorAll<HTMLElement>(QIMAO_CONTENT_SELECTOR);
-    const first = contents[0] ?? null;
-    const indicator = document.querySelector<HTMLElement>('.atreader-qimao-page-indicator');
+    if (contents.length > 0) return; // 健康态不打日志
+    const themeHost = document.querySelector<HTMLElement>('.reader-layout-theme');
+    let storedTheme: string | null = null;
+    try {
+      storedTheme = JSON.parse(localStorage.getItem(QIMAO_READER_SETTING_KEY) ?? 'null')?.theme ?? null;
+    } catch {
+      storedTheme = null;
+    }
+    const bg = document.body ? getComputedStyle(document.body).backgroundColor : '?';
     const stats = this.paginator?.getStats();
-    this.api.log.info(
-      `[Qimao] diagnose nodes=${contents.length}`
-      + ` p=${first?.querySelectorAll('p').length ?? -1}`
-      + ` chars=${first?.textContent?.length ?? -1}`
-      + ` firstConnected=${first?.isConnected ?? false}`
-      + ` indicator=${indicator?.textContent ?? '?'}`
+    logToFile(
+      `[Qimao] diagnose nodes=0`
+      + ` dataTheme=${themeHost?.getAttribute('data-theme') ?? '(no-host)'}`
+      + ` storedTheme=${storedTheme ?? '(none)'}`
+      + ` bg=${bg}`
       + ` pager=${stats ? JSON.stringify(stats) : 'null'}`,
+    );
+    this.logVariantInventory();
+  }
+
+  /*!
+   * 变体取证：阅读页上正文选择器匹配为零，但站点自身可能已把正文渲染进
+   * 另一套 DOM（2026-10-25 实锤一次：内容可见、主题正常、nodes=0，服务端
+   * 状态粘滞约 1 分钟、重载无效后自愈）。把正文实际所在的结构采进日志
+   * （最长文本段落的祖先链 + iframe + body 直接子元素），复现一次即可
+   * 拿到分页器自适应绑定所需的全部结构信息。
+   */
+  private logVariantInventory(): void {
+    const firstLongP = Array.from(document.querySelectorAll<HTMLElement>('p'))
+      .find(p => (p.textContent || '').length > 100) ?? null;
+    const chain: string[] = [];
+    for (let node: HTMLElement | null = firstLongP, depth = 0;
+      node && depth < 5;
+      node = node.parentElement, depth++) {
+      chain.push(`${node.tagName}.${String(node.className).slice(0, 80)}`);
+    }
+    const iframes = Array.from(document.querySelectorAll('iframe'))
+      .map(f => (f.src || '').slice(0, 80))
+      .join(' | ');
+    const bodyChildren = Array.from(document.body?.children ?? [])
+      .slice(0, 12)
+      .map(c => `${c.tagName}.${String(c.className).slice(0, 40)}`)
+      .join(' | ');
+    logToFile(
+      `[Qimao] variant-inventory`
+      + ` firstP=${firstLongP ? (firstLongP.textContent || '').slice(0, 30) : '(none)'}`
+      + ` chain=${chain.join(' < ') || '(none)'}`
+      + ` iframes=${iframes || '(none)'}`
+      + ` bodyChildren=${bodyChildren || '(none)'}`,
     );
   }
 

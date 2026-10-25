@@ -132,6 +132,11 @@ export class AppRuntime {
     };
   }
 
+  /*!
+   * 慢加载取证（失败触发）：健康加载零输出；load 超过 3s 才落一行——远程
+   * 对账「服务端慢 vs 客户端卡」的依据。被 tracker 拦截的资源失败不作为
+   * 触发条件（带统计脚本的站点会页页误报），仅在命中时随行展示。
+   */
   private reportLoadPerformance(): () => void {
     const failedResources: string[] = [];
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -148,6 +153,8 @@ export class AppRuntime {
         window.removeEventListener('error', onError, true);
         try {
           const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+          const loadMs = Math.round(nav?.loadEventEnd ?? 0);
+          if (loadMs <= 3000) return;
           const slowest: Array<{ url: string; ms: number }> = [];
           for (const entry of performance.getEntriesByType('resource') as PerformanceResourceTiming[]) {
             const candidate = { url: entry.name.slice(0, 90), ms: Math.round(entry.duration) };
@@ -160,7 +167,7 @@ export class AppRuntime {
             `docResponse=${Math.round(nav?.responseEnd ?? -1)}ms ` +
             `domInteractive=${Math.round(nav?.domInteractive ?? -1)}ms ` +
             `DCL=${Math.round(nav?.domContentLoadedEventEnd ?? -1)}ms ` +
-            `load=${Math.round(nav?.loadEventEnd ?? -1)}ms ` +
+            `load=${loadMs}ms ` +
             `failed=${JSON.stringify(failedResources)} slowest=${JSON.stringify(slowest)}`;
           log.info(line);
           logToFile(line);

@@ -132,6 +132,7 @@ const expectedMainCommands = new Set([
   'switch_bookstore_by_index',
   'get_bookstore_list',
   'apply_site_zoom',
+  'ensure_font_cache',
   'get_app_name',
   'get_settings',
   'patch_settings',

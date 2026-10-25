@@ -18,6 +18,13 @@ const STYLE_ID = `${OVERLAY_ID}-style`;
  * 预铺过场与新文档过场共享同一相位轴，交接只剩导航冻结帧的微小相位差 */
 const BREATHE_MS = 2200;
 const TRAVEL_MS = 1500;
+/** load 事件兜底：长尾资源挂住时不再死等 load（见 mount 内 settle 触发） */
+const LOAD_FALLBACK_MS = 4000;
+/** 探针注册宽限：过场在 documentStart 铺设，插件的就绪探针要等
+ * get_runtime_plugin IPC + 动态 import 之后才注册（2026-10-25 实测快站的
+ * load+320ms 时刻 probe=none，直接判定会在裸页状态撤场）。开局未满宽限期
+ * 且探针未注册时先等注册，再按探针判定撤场。 */
+const PROBE_GRACE_MS = 1500;
 /**
  * 根滚动条是浏览器画在一切内容之上的，z-index 盖不住；给滚动条涂透明的
  * CSS 方案又会被站点自己的滚动条样式反杀（样式表顺序打不赢）。因此过场
@@ -61,7 +68,19 @@ export interface SwitchLoadingTiming {
    * 过场自动淡出，不会把用户困死。
    */
   sticky?: boolean;
+  /** 探针注册宽限（毫秒），默认 1500；测试传 0 跳过等待 */
+  probeGraceMs?: number;
 }
+
+/**
+ * 站点呈现就绪探针：由各书城插件注册（正文已渲染且站点样式已应用）。
+ * 过场层撤场前会等待探针为 true（maxMs 硬顶），站点 CSS 迟到的 FOUC 裸页
+ * 不会再被提前暴露。探针只作用于非 sticky 的撤场判定。
+ */
+let readinessProbe: (() => boolean) | null = null;
+export const setSiteReadinessProbe = (probe: () => boolean): void => {
+  readinessProbe = probe;
+};
 
 const SWITCH_LOADING_CSS = `
 #${OVERLAY_ID} {
@@ -207,30 +226,37 @@ export const showSiteSwitchLoading = (
 
   const view = doc.defaultView ?? window;
   const settleMs = timing.settleMs ?? 320;
-  const maxMs = timing.maxMs ?? (timing.sticky ? 2500 : 8000);
+  const probeGraceMs = timing.probeGraceMs ?? PROBE_GRACE_MS;
+  // 非 sticky 硬顶 15s：探针未就绪（站点渲染反复重建的混乱期）时过场持续
+  // 遮盖；配合 10s 看门狗重载，用户看到的是「过场 → 完整页面」而非裸页
+  const maxMs = timing.maxMs ?? (timing.sticky ? 2500 : 15000);
+  const overlayStart = Date.now();
   let dismissed = false;
+  // dismiss 必须闭包绑定本调用挂载的节点：showSiteSwitchLoading 幂等，但
+  // 上一轮调用的收场计时器可能还活着（settle 宽限链可长达 1.5s+），现查
+  // getElementById 会把「当前这轮」的过场层误拉淡出
+  let overlay: HTMLElement | null = null;
   const dismiss = (): void => {
     if (dismissed) return;
     dismissed = true;
-    const root = doc.getElementById(OVERLAY_ID);
-    if (!root) return;
-    root.classList.add('atreader-switch-loading-done');
+    if (!overlay) return;
+    overlay.classList.add('atreader-switch-loading-done');
     // 计时器必须用全局 setTimeout：happy-dom 的 defaultView 计时器与真实
     // 事件循环不连通；生产环境两者本就是同一个 window
     setTimeout(() => {
       // 过场完全透明后才恢复滚动条，观感上无缝
       removeCSS(SCROLLBAR_STYLE_ID);
-      root.remove();
+      overlay?.remove();
     }, 280);
   };
 
   const mount = (): void => {
     if (doc.getElementById(OVERLAY_ID)) return;
-    const overlay = doc.createElement('div');
-    overlay.id = OVERLAY_ID;
-    overlay.setAttribute('role', 'status');
-    overlay.setAttribute('aria-label', '正在加载');
-    overlay.innerHTML =
+    const overlayEl = doc.createElement('div');
+    overlayEl.id = OVERLAY_ID;
+    overlayEl.setAttribute('role', 'status');
+    overlayEl.setAttribute('aria-label', '正在加载');
+    overlayEl.innerHTML =
       '<main><div class="logo" role="img" aria-label="艾特阅读标志"></div>'
       + '<h1>艾特阅读</h1>'
       + '<p class="status">正在准备阅读空间</p>'
@@ -238,21 +264,42 @@ export const showSiteSwitchLoading = (
     // 相位同步：动画锚定墙上时钟（负 delay = 本周期已流逝的部分）。
     // 预铺过场与新文档过场各自挂载时独立计算，得到同一相位——交接处
     // 不再出现旧文档任意相位 → 新文档 0 相位的随机跳变。
-    const logo = overlay.querySelector<HTMLElement>('.logo');
-    const block = overlay.querySelector<HTMLElement>('.progress-block');
+    const logo = overlayEl.querySelector<HTMLElement>('.logo');
+    const block = overlayEl.querySelector<HTMLElement>('.progress-block');
     if (logo) logo.style.animationDelay = `-${Date.now() % BREATHE_MS}ms`;
     if (block) block.style.animationDelay = `-${Date.now() % TRAVEL_MS}ms`;
-    (doc.body ?? doc.documentElement)?.appendChild(overlay);
+    (doc.body ?? doc.documentElement)?.appendChild(overlayEl);
+    overlay = overlayEl;
     // readyState 已 complete（注入晚于 load / 测试环境）直接进入稳定驻留；
     // sticky（提交预铺）不安排 load/settle 收场，只靠 maxMs 兜底
     if (timing.sticky) {
       setTimeout(dismiss, maxMs);
       return;
     }
+    const settle = (): void => {
+      // 探针未注册且开局未满宽限期：等插件注册探针（快站 load+320ms 时刻
+      // 探针往往尚未就位）；探针已注册则按探针判定，未就绪 300ms 重查，
+      // maxMs 硬顶到点强制撤场，绝不让用户被困
+      if (!readinessProbe && Date.now() - overlayStart < probeGraceMs) {
+        setTimeout(settle, 300);
+        return;
+      }
+      if (readinessProbe && !readinessProbe() && Date.now() - overlayStart < maxMs) {
+        setTimeout(settle, 300);
+        return;
+      }
+      dismiss();
+    };
     if (doc.readyState === 'complete') {
-      setTimeout(dismiss, settleMs);
+      setTimeout(settle, settleMs);
     } else {
-      view.addEventListener('load', () => setTimeout(dismiss, settleMs), { once: true });
+      view.addEventListener('load', () => setTimeout(settle, settleMs), { once: true });
+      // load 兜底：单个挂住的长尾资源（被墙统计脚本、慢图）会让 load 永远
+      // 不来，用户被困到 maxMs 硬顶。DOM 骨架早于 load 就绪，4s 后直接进入
+      // settle——探针（若已注册）继续把关撤场。
+      setTimeout(() => {
+        if (!dismissed) setTimeout(settle, settleMs);
+      }, LOAD_FALLBACK_MS);
     }
     setTimeout(dismiss, maxMs);
   };

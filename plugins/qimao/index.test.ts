@@ -417,3 +417,123 @@ describe('Qimao plugin shell styles', () => {
     expect(layoutToggleCss).toContain('#cc6d29');
   });
 });
+
+describe('Qimao site theme re-assertion guard', () => {
+  afterEach(() => {
+    history.replaceState({}, '', '/');
+    document.body.replaceChildren();
+    localStorage.clear();
+  });
+
+  const mountReaderWithTheme = (dataTheme: string | null): HTMLElement => {
+    document.body.innerHTML = `
+      <div class="reader-layout-theme">
+        <div class="chapter-detail">
+          <div class="chapter-detail-article"><p>正文</p></div>
+        </div>
+      </div>`;
+    const host = document.querySelector<HTMLElement>('.reader-layout-theme')!;
+    if (dataTheme !== null) host.setAttribute('data-theme', dataTheme);
+    return host;
+  };
+
+  it('存储偏好与落地主题不一致时（站点开机失败）代写一次 data-theme', async () => {
+    history.replaceState({}, '', READER_URL);
+    const host = mountReaderWithTheme('default');
+    localStorage.setItem(
+      'qimao_reader_setting_data',
+      JSON.stringify({ theme: 'dark', fontSize: '18', fontFamily: '' }),
+    );
+    const plugin = new QimaoPlugin();
+    const { api } = createApi();
+    plugin.onLoad(api);
+
+    await new Promise(resolve => setTimeout(resolve, 450));
+    expect(host.getAttribute('data-theme')).toBe('dark');
+    plugin.onUnload();
+  });
+
+  it('站点已自行落地主题时守卫空转不改动', async () => {
+    history.replaceState({}, '', READER_URL);
+    const host = mountReaderWithTheme('dark');
+    localStorage.setItem(
+      'qimao_reader_setting_data',
+      JSON.stringify({ theme: 'dark', fontSize: '18', fontFamily: '' }),
+    );
+    const plugin = new QimaoPlugin();
+    const { api } = createApi();
+    plugin.onLoad(api);
+
+    await new Promise(resolve => setTimeout(resolve, 450));
+    expect(host.getAttribute('data-theme')).toBe('dark');
+    plugin.onUnload();
+  });
+
+  it('无站点阅读偏好时不干预主题属性', async () => {
+    history.replaceState({}, '', READER_URL);
+    const host = mountReaderWithTheme('default');
+    const plugin = new QimaoPlugin();
+    const { api } = createApi();
+    plugin.onLoad(api);
+
+    await new Promise(resolve => setTimeout(resolve, 450));
+    expect(host.getAttribute('data-theme')).toBe('default');
+    plugin.onUnload();
+  });
+});
+
+describe('Qimao site boot guard: article class re-assertion', () => {
+  afterEach(() => {
+    history.replaceState({}, '', '/');
+    document.body.replaceChildren();
+    localStorage.clear();
+  });
+
+  it('正文已渲染但类模板缺失（无类 DIV）时按结构补写 chapter-detail-article 与字号类', async () => {
+    history.replaceState({}, '', READER_URL);
+    document.body.innerHTML = `
+      <div class="reader-layout-theme" data-theme="dark">
+        <div class="chapter-detail-wrap reader-box">
+          <div class="chapter-detail-wrap-content">
+            <div>
+              <div class="article"><p>正文</p></div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    localStorage.setItem(
+      'qimao_reader_setting_data',
+      JSON.stringify({ theme: 'dark', fontSize: '18', fontFamily: '' }),
+    );
+    const plugin = new QimaoPlugin();
+    const { api } = createApi();
+    plugin.onLoad(api);
+
+    await new Promise(resolve => setTimeout(resolve, 450));
+    const naked = document.querySelector('.chapter-detail-wrap-content > div')!;
+    expect(naked.classList.contains('chapter-detail-article')).toBe(true);
+    expect(naked.classList.contains('font-18')).toBe(true);
+    plugin.onUnload();
+  });
+
+  it('正文未渲染（无 .article）时不凭空造节点，交给看门狗', async () => {
+    history.replaceState({}, '', READER_URL);
+    document.body.innerHTML = `
+      <div class="reader-layout-theme" data-theme="dark">
+        <div class="chapter-detail-wrap reader-box">
+          <div class="chapter-detail-wrap-content"></div>
+        </div>
+      </div>`;
+    localStorage.setItem(
+      'qimao_reader_setting_data',
+      JSON.stringify({ theme: 'dark', fontSize: '18', fontFamily: '' }),
+    );
+    const plugin = new QimaoPlugin();
+    const { api } = createApi();
+    plugin.onLoad(api);
+
+    await new Promise(resolve => setTimeout(resolve, 450));
+    expect(document.querySelector('.chapter-detail-wrap-content > div')).toBeNull();
+    plugin.onUnload();
+  });
+});

@@ -1,7 +1,7 @@
 {
   "id": "duokan",
   "name": "多看",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "多看网页版在线阅读（原生双页排版，桥接空格/翻页键）",
   "author": "艾特阅读团队",
   "homepage": "https://github.com/dengcb/weixin-reader-desktop",

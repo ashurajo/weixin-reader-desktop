@@ -5,6 +5,7 @@ use tauri::window::Color;
 use tauri::{Emitter, Listener, Manager, WebviewUrl, WebviewWindowBuilder};
 
 mod commands;
+mod font_cache;
 mod local_books;
 mod menu;
 mod menu_model;
@@ -360,14 +361,19 @@ pub fn run() {
                 .with_denylist(&["settings", "startup"])
                 .build(),
         )
-        .plugin(tauri_plugin_log::Builder::new().targets([
-            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
-            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
-            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: None }),
-        ])
-        .max_file_size(2 * 1024 * 1024)
-        .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(2))
-        .build())
+        .plugin(tauri_plugin_log::Builder::new()
+            // Info 及以上：tao/wry 的 TRACE（窗口移动/缩放每次几十行）是日志
+            // 体积的大头，全部过滤；前端 logToFile 走 info（target=frontend）
+            // 不受影响。
+            .level(log::LevelFilter::Info)
+            .targets([
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: None }),
+            ])
+            .max_file_size(2 * 1024 * 1024)
+            .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(2))
+            .build())
         .plugin(tauri_plugin_updater::Builder::default().build())
         .setup(move |app| {
             log::info!(
@@ -707,6 +713,7 @@ pub fn run() {
             commands::switch_bookstore_by_index,
             commands::get_bookstore_list,
             commands::apply_site_zoom,
+            font_cache::ensure_font_cache,
             commands::get_app_name,
             commands::get_app_version,
             commands::install_plugin,

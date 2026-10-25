@@ -121,3 +121,17 @@ export const logToFile = (message: string) => {
         log.debug(message); // Fallback to console if Tauri not ready
     }
 };
+
+export interface FontCacheInfo {
+    /** 字体文件 base64：页面用 FontFace(ArrayBuffer) 程序化注册（零网络） */
+    dataBase64: string;
+}
+
+/**
+ * 字体磁盘缓存：Rust 侧下载并落盘（跨会话永久有效），文件字节经 IPC 以
+ * base64 直交页面——WebKit 对页面内字体资源（远程 URL 与自定义协议子资源
+ * 均在内）的加载路径偶发整体拦截，字节直供完全绕开。页面无 Tauri 环境
+ * （测试/旧版壳）时由调用方走远程 URL @font-face 回退。
+ */
+export const ensureFontCache = (url: string): Promise<FontCacheInfo> =>
+    invoke<FontCacheInfo>('ensure_font_cache', { url });

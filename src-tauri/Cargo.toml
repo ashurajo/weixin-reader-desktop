@@ -1,6 +1,6 @@
 [package]
 name = "weixin-reader"
-version = "1.9.4"
+version = "1.9.5"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -32,6 +32,8 @@ zip = "2.2"
 tauri-plugin-dialog = "2.7"
 sha2 = "0.10"
 sha1 = "0.10"
+# 字体磁盘缓存的 Rust 侧下载（WebKit 页面字体网络路径偶发被掐死的绕行方案）
+ureq = { version = "2", default-features = false, features = ["tls"] }
 base64 = "0.22"
 encoding_rs = "0.8"
 percent-encoding = "2"

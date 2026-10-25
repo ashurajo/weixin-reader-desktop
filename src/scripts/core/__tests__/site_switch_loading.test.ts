@@ -7,6 +7,7 @@ import { describe, it, expect, afterEach } from 'bun:test';
 import {
   isSiteSwitchNavigation,
   isStartupWindow,
+  setSiteReadinessProbe,
   showSiteSwitchLoading,
   SCROLLBAR_STYLE_ID,
 } from '../site_switch_loading';
@@ -114,7 +115,8 @@ describe('showSiteSwitchLoading', () => {
   });
 
   it('readyState complete 时按 settleMs 稳定驻留后淡出移除', async () => {
-    showSiteSwitchLoading(document, { settleMs: 10, maxMs: 5000 });
+    // probeGraceMs=0 跳过探针注册宽限（生产默认 1500ms，等插件注册探针）
+    showSiteSwitchLoading(document, { settleMs: 10, maxMs: 5000, probeGraceMs: 0 });
     expect(root()).not.toBeNull();
     // settleMs + 280ms 淡出动画后移除
     await new Promise(resolve => setTimeout(resolve, 350));
@@ -129,7 +131,7 @@ describe('showSiteSwitchLoading', () => {
   });
 
   it('淡出走 done 类（透明过渡）而非直接消失', async () => {
-    showSiteSwitchLoading(document, { settleMs: 20, maxMs: 5000 });
+    showSiteSwitchLoading(document, { settleMs: 20, maxMs: 5000, probeGraceMs: 0 });
     await new Promise(resolve => setTimeout(resolve, 60));
     // 已进入淡出态但节点尚在（280ms 过渡未结束）
     expect(root()?.classList.contains('atreader-switch-loading-done')).toBe(true);
@@ -151,8 +153,24 @@ describe('showSiteSwitchLoading', () => {
     expect(root()).toBeNull();
   });
 
+  it('探针注册竞速：探针未注册时在宽限期内等待，注册后按探针判定撤场', async () => {
+    // 生产时序复现：documentStart 铺过场，快站 load+320ms 时刻插件探针尚未注册
+    showSiteSwitchLoading(document, { settleMs: 10, maxMs: 5000, probeGraceMs: 600 });
+    await new Promise(resolve => setTimeout(resolve, 120));
+    // 无探针 + 宽限期内：不得在 load+320ms 撤场（裸页状态）
+    expect(root()).not.toBeNull();
+    // 探针就位且判定未就绪：持续遮盖
+    setSiteReadinessProbe(() => false);
+    await new Promise(resolve => setTimeout(resolve, 600));
+    expect(root()).not.toBeNull();
+    // 探针判定就绪：立即撤场
+    setSiteReadinessProbe(() => true);
+    await new Promise(resolve => setTimeout(resolve, 500));
+    expect(root()).toBeNull();
+  });
+
   it('过场期间根滚动条被整体隐藏（带槽位补偿），淡出移除后恢复', async () => {
-    showSiteSwitchLoading(document, { settleMs: 20, maxMs: 5000 });
+    showSiteSwitchLoading(document, { settleMs: 20, maxMs: 5000, probeGraceMs: 0 });
     const css = document.getElementById(SCROLLBAR_STYLE_ID)?.textContent ?? '';
     // 直接让滚动条不存在——z-index 盖不住、透明涂装打不赢站点样式
     expect(css).toContain('overflow: hidden');

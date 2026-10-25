@@ -31,6 +31,13 @@ import type {
   PluginStyles,
   ReaderPlugin,
 } from '../../src/scripts/core/plugin_types';
+// api.log 是 console-only 实现（core/logger.ts），落文件诊断必须走 logToFile
+import { logToFile, ensureFontCache } from '../../src/scripts/core/tauri';
+import { setSiteReadinessProbe } from '../../src/scripts/core/site_switch_loading';
+import {
+  armReaderEntryWatchdog,
+  stylesheetsReady,
+} from '../shared/reader_entry_watchdog';
 import {
   ColumnPaginator,
 } from '../shared/column_paginator';
@@ -138,7 +145,7 @@ const FONT_ICON = `
 const IREADER_RUNTIME_MANIFEST: PluginManifest = {
   id: 'ireader',
   name: '掌阅',
-  version: '1.0.0',
+  version: '1.0.1',
   description: '掌阅 PC 网页版网站支持插件（官方）',
   author: '艾特阅读团队',
   homepage: 'https://github.com/dengcb/weixin-reader-desktop',
@@ -202,6 +209,16 @@ export class IreaderPlugin implements ReaderPlugin {
   private darkEnabled = false;
   private fontStep = FONT_DEFAULT_INDEX;
   private weightIndex = FONT_WEIGHT_DEFAULT_INDEX;
+  /**
+   * 字体来源状态。face = 字节经 IPC 直供并以 FontFace(ArrayBuffer) 注册进
+   * document.fonts（零网络，唯一可靠通道——WebKit 对页面内字体资源加载
+   * 偶发整体拦截，远程 URL 与自定义协议子资源均不能幸免，2026-10-25 双重
+   * 实证）；remote = @font-face 远程 URL 回退（无 Tauri/缓存失败时）。
+   */
+  private fontSourceState: 'idle' | 'face' | 'remote' | 'failed' = 'idle';
+  private fontSourceUrl: string | null = null;
+  private readonly registeredFontUrls = new Set<string>();
+  private readonly fontFaceLoads = new Map<string, Promise<void>>();
   private toolbar: HTMLDivElement | null = null;
   private toolbarButtons: Record<string, HTMLButtonElement> = {};
   private fontPanel: HTMLDivElement | null = null;
@@ -230,8 +247,15 @@ export class IreaderPlugin implements ReaderPlugin {
       viewportClass: 'atreader-ireader-page-viewport',
       indicatorClass: 'atreader-ireader-page-indicator',
       contentSelector: IREADER_CONTENT_SELECTOR,
+      // 站点是 Nuxt：正文节点由框架异步重建，wrap 式搬移/包裹节点会被框架
+      // 当成脏 DOM 推倒重来（正文被弃→空白）。self = 视口类挂正文自身，
+      // 站点 DOM 零改动，绑定永不因重渲染失效。
+      bindMode: 'self',
       getChapterKey: () => this.getChapterKey(),
       onChapterChange: chapterKey => this.restoreChapterPosition(chapterKey),
+      onAnomaly: detail => {
+        logToFile(`[Ireader] anomaly ${detail} chapterKey=${this.getChapterKey()}`);
+      },
       onPositionChange: (pageIndex, pageCount) => {
         if (!this.positionReady || pageCount <= 0) return;
         const ratio = pageCount <= 1 ? 0 : pageIndex / (pageCount - 1);
@@ -250,6 +274,20 @@ export class IreaderPlugin implements ReaderPlugin {
       window.removeEventListener('click', this.handlePanelOutsideClick, { capture: true });
     });
     this.installTrailTracker();
+
+    // 进页失速看门狗 + 过场层就绪探针：站点 CSS 偶发迟到（正文存在但无样式
+    // =裸页单列白底）。就绪判据必须含样式感知：裸页内容背景是透明的。
+    if (this.isReaderPage()) {
+      const presented = (): boolean =>
+        stylesheetsReady(document)
+        && !!document.querySelector(`${IREADER_CONTENT_SELECTOR} p`);
+      setSiteReadinessProbe(presented);
+      armReaderEntryWatchdog({
+        pluginId: 'ireader',
+        isReady: presented,
+        log: message => logToFile(`[Ireader] ${message}`),
+      });
+    }
 
     const unsubscribe = api.settings.subscribe(settings => this.applySettings(settings));
     this.cleanupFunctions.push(unsubscribe);
@@ -692,10 +730,16 @@ export class IreaderPlugin implements ReaderPlugin {
     const weight = FONT_WEIGHTS[this.weightIndex];
     if (weight && weight.url) {
       rules.push(
-        `@font-face { font-family: '${weight.family}';`
-        + ` src: url('${weight.url}') format('truetype'); font-display: swap; }`,
         `.reader-content p { font-family: '${weight.family}', FZYouH, sans-serif !important; }`,
       );
+      // @font-face 仅在远程 URL 回退路径需要；face 路径的字体已经字节直供
+      // 注册进 document.fonts，不再走任何网络加载（见 ensureFontSource 说明）。
+      if (this.fontSourceState === 'remote') {
+        rules.push(
+          `@font-face { font-family: '${weight.family}';`
+          + ` src: url('${weight.url}') format('truetype'); font-display: swap; }`,
+        );
+      }
     }
     if (this.fontStep !== FONT_NATIVE_INDEX) {
       const size = FONT_STEPS[this.fontStep];
@@ -715,37 +759,94 @@ export class IreaderPlugin implements ReaderPlugin {
   }
 
   /*!
-   * 预加载反爬字体：@font-face 只有被正文命中才开始下载，而掌阅正文由
-   * chapter-content API 在页面加载 ~2 秒后才插入——swap 期间 PUA 码位在
-   * 回退字体里没有字形，表现为「导航栏在、正文空白」。preload 让字体与
-   * 文档并行下载，正文出现时字体已就绪。
+   * 字体来源解析：Rust 侧 ensure_font_cache 下载并落盘（磁盘永久缓存，
+   * 下载一次管终身），文件字节经 IPC 直交页面，FontFace(ArrayBuffer)
+   * 程序化注册——绕开 WebKit 页面字体网络路径（2026-10-25 实证：远程 URL
+   * 与 atreader:// 协议子资源都会被拦，document.fonts.check 恒 false）。
+   * 无 Tauri/缓存失败时回退远程 URL @font-face（行为退回浏览器自下载）。
    */
-  private ensureFontPreload(): void {
+  private async ensureFontSource(): Promise<void> {
     const weight = FONT_WEIGHTS[this.weightIndex];
     if (!weight?.url) return;
-    if (document.head?.querySelector(`link[rel="preload"][href="${weight.url}"]`)) return;
-    const link = document.createElement('link');
-    link.rel = 'preload';
-    link.as = 'font';
-    link.type = 'font/ttf';
-    link.crossOrigin = 'anonymous';
-    link.href = weight.url;
-    (document.head ?? document.documentElement).appendChild(link);
+    // 本会话已注册：FontFace 持久存在于 document.fonts，零成本短路
+    if (this.fontSourceState === 'face' && this.registeredFontUrls.has(weight.url)) return;
+    // 无 Tauri 环境（happy-dom 测试/旧版壳）：远程 URL 回退，不发真实网络请求
+    if (!window.__TAURI__) {
+      this.applyFontSource(weight.url, 'remote');
+      return;
+    }
+    const inflight = this.fontFaceLoads.get(weight.url);
+    if (inflight) {
+      await inflight;
+      return;
+    }
+    const task = this.loadFontIntoDocument(weight.url, weight.family);
+    this.fontFaceLoads.set(weight.url, task);
+    try {
+      await task;
+    } finally {
+      this.fontFaceLoads.delete(weight.url);
+    }
+  }
+
+  private async loadFontIntoDocument(url: string, family: string): Promise<void> {
+    try {
+      const info = await ensureFontCache(url);
+      if (!info?.dataBase64) throw new Error('font cache unavailable');
+      // 用户在下载期间已切到其他字重：本次结果作废，由最新一轮流程接管
+      if (FONT_WEIGHTS[this.weightIndex]?.url !== url) return;
+      await this.registerFontFace(family, info.dataBase64);
+      if (FONT_WEIGHTS[this.weightIndex]?.url !== url) return;
+      this.registeredFontUrls.add(url);
+      this.applyFontSource(url, 'face');
+    } catch (error) {
+      // 缓存命令失败（旧版壳无此命令 / 下载出错）：回退远程 URL。失败原样
+      // 落日志，不靠推测。
+      this.fontSourceState = 'failed';
+      const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      logToFile(`[Ireader] font cache failed, fallback to remote: ${detail}`);
+      if (FONT_WEIGHTS[this.weightIndex]?.url !== url) return;
+      this.applyFontSource(url, 'remote');
+    }
+  }
+
+  /*! 字节 → document.fonts 注册。data: fetch 由引擎一次性解码（5.8MB），
+   * 比 JS 逐字符 atob 快且省内存；FontFace(ArrayBuffer) Safari 10+ 即支持。 */
+  private async registerFontFace(family: string, dataBase64: string): Promise<void> {
+    const response = await fetch(`data:font/ttf;base64,${dataBase64}`);
+    if (!response.ok) throw new Error(`font data decode failed: ${response.status}`);
+    const data = await response.arrayBuffer();
+    const face = new FontFace(family, data);
+    await face.load();
+    document.fonts.add(face);
+  }
+
+  private applyFontSource(url: string, state: 'face' | 'remote'): void {
+    // 变更守卫：applySettings → ensureFontSource → 本方法 → refreshFontSettings
+    // → applySettings 会形成重入环；仅在来源真正变化时才重跑一轮样式应用
+    if (this.fontSourceUrl === url && this.fontSourceState === state) return;
+    this.fontSourceUrl = url;
+    this.fontSourceState = state;
+    this.refreshFontSettings();
+  }
+
+  private refreshFontSettings(): void {
+    const api = this.api;
+    if (!api) return;
+    this.applySettings(api.settings.getAll());
   }
 
   /*!
-   * 空白正文取证采样：正文 p 数/字符数（API 是否回填）、滚动宽度（PUA 字形
-   * 是否占位）、页码指示器（分页器把视口停在空栏还是 1/1）、字体就绪状态。
-   * 用户复现「正文空白」时日志可直接指认是哪条分支。每次进阅读页采样两次。
+   * 失败取证采样：健康加载零输出；进页 6 秒后若字体未就绪（check=false，
+   * 字节注册路径失效的签名）或正文仍为空，才写一次诊断——「正文空白」与
+   * 「字体失踪」的实锤时刻。
    */
   private scheduleContentDiagnostics(): void {
     if (this.diagnosticsTimers.length > 0) {
       for (const timer of this.diagnosticsTimers) window.clearTimeout(timer);
       this.diagnosticsTimers = [];
     }
-    for (const delay of [2500, 6000]) {
-      this.diagnosticsTimers.push(window.setTimeout(() => this.logContentDiagnostics(), delay));
-    }
+    this.diagnosticsTimers.push(window.setTimeout(() => this.logContentDiagnostics(), 6000));
   }
 
   private logContentDiagnostics(): void {
@@ -756,14 +857,21 @@ export class IreaderPlugin implements ReaderPlugin {
     const fontReady = weight?.family
       ? (document.fonts?.check(`28px '${weight.family}'`) ?? false)
       : true;
+    const chars = content?.textContent?.length ?? 0;
+    if (fontReady && chars > 0) return; // 健康态不打日志
     const stats = this.paginator?.getStats();
-    this.api.log.info(
+    // 站点框架重建会更换正文节点/类名：把当前 DOM 里相关 class 采出来对照
+    const liveClasses = (document.body?.innerHTML.match(/class="[^"]*(?:reader|width|content)[^"]*"/g) ?? [])
+      .slice(0, 10)
+      .join(' | ');
+    logToFile(
       `[Ireader] diagnose p=${content?.querySelectorAll('p').length ?? -1}`
-      + ` chars=${content?.textContent?.length ?? -1}`
+      + ` chars=${chars}`
       + ` scrollWidth=${content?.scrollWidth ?? -1}`
       + ` pages=${indicator?.textContent ?? '?'}`
       + ` fonts=${document.fonts?.status ?? '?'} check=${fontReady}`
-      + ` weight=${this.weightIndex}`
+      + ` weight=${this.weightIndex} fontSrc=${this.fontSourceState}`
+      + ` liveClasses=${liveClasses || '(none)'}`
       + ` pager=${stats ? JSON.stringify(stats) : 'null'}`,
     );
   }
@@ -1088,7 +1196,7 @@ export class IreaderPlugin implements ReaderPlugin {
     if (hideToolbar) this.removeFontPanel();
     this.syncToolbar();
 
-    this.ensureFontPreload();
+    void this.ensureFontSource();
     this.scheduleContentDiagnostics();
   }
 

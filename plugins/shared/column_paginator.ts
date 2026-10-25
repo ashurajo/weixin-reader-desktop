@@ -46,8 +46,17 @@ export interface ColumnPaginatorOptions {
   indicatorClass: string;
   /** 站点正文内容选择器。 */
   contentSelector: string;
+  /**
+   * 绑定方式。wrap（默认）：插入自建视口 div 并把正文移入。
+   * self：不插不挪，视口类直接挂到正文元素自身（视口=正文）——站点框架
+   * （Nuxt/Vue）对 DOM 结构变动零感知，绑定永不因重渲染而失效。
+   * 正文由站点框架异步重建的站点（掌阅等）应使用 self。
+   */
+  bindMode?: 'wrap' | 'self';
   onPositionChange?: (pageIndex: number, pageCount: number) => void;
   onChapterChange?: (chapterKey: string) => void;
+  /** 故障取证：正文节点被站点渲染抛弃（content-disconnected）与自愈重绑（rebound）时触发。 */
+  onAnomaly?: (detail: string) => void;
   getChapterKey?: () => string;
 }
 
@@ -57,18 +66,25 @@ export class ColumnPaginator {
   private readonly viewportClass: string;
   private readonly indicatorClass: string;
   private readonly contentSelector: string;
+  private readonly bindMode: 'wrap' | 'self';
   private readonly onPositionChange?: ColumnPaginatorOptions['onPositionChange'];
   private readonly onChapterChange?: ColumnPaginatorOptions['onChapterChange'];
+  private readonly onAnomaly?: ColumnPaginatorOptions['onAnomaly'];
   private readonly getChapterKey: () => string;
   private content: HTMLElement | null = null;
-  private viewport: HTMLDivElement | null = null;
+  /** wrap 模式 = 自建视口 div；self 模式 = 挂了视口类的正文元素自身 */
+  private viewport: HTMLElement | null = null;
   private indicator: HTMLDivElement | null = null;
   private bodyObserver: MutationObserver | null = null;
+  /** self 模式：盯正文自身 class 属性——站点框架重写 className 时即时补类 */
+  private contentAttrObserver: MutationObserver | null = null;
   /** 样式开关（隐藏导航/宽屏等）注入或移除 <style> 时触发重排。 */
   private headObserver: MutationObserver | null = null;
   private domReadyHandler: (() => void) | null = null;
   private resizeTimer: ReturnType<typeof setTimeout> | null = null;
   private mutationTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectTimer: ReturnType<typeof setInterval> | null = null;
+  private anomalyNotified = '';
   private pendingMutations: MutationRecord[] = [];
   private enabled = false;
   private progressVisible = true;
@@ -87,8 +103,10 @@ export class ColumnPaginator {
     this.viewportClass = options.viewportClass;
     this.indicatorClass = options.indicatorClass;
     this.contentSelector = options.contentSelector;
+    this.bindMode = options.bindMode ?? 'wrap';
     this.onPositionChange = options.onPositionChange;
     this.onChapterChange = options.onChapterChange;
+    this.onAnomaly = options.onAnomaly;
     this.getChapterKey = options.getChapterKey ?? (() => location.pathname + location.search);
   }
 
@@ -104,6 +122,7 @@ export class ColumnPaginator {
   getStats(): {
     enabled: boolean;
     pagedClassApplied: boolean;
+    viewportClassApplied: boolean;
     pageCount: number;
     pageIndex: number;
     chapterKey: string;
@@ -117,6 +136,7 @@ export class ColumnPaginator {
     return {
       enabled: this.enabled,
       pagedClassApplied: document.body?.classList.contains(this.pagedClass) === true,
+      viewportClassApplied: this.viewport?.classList.contains(this.viewportClass) === true,
       pageCount: this.pageCount,
       pageIndex: this.pageIndex,
       chapterKey: this.chapterKey,
@@ -167,6 +187,8 @@ export class ColumnPaginator {
     this.clearTimers();
     this.bodyObserver?.disconnect();
     this.bodyObserver = null;
+    this.contentAttrObserver?.disconnect();
+    this.contentAttrObserver = null;
     this.headObserver?.disconnect();
     this.headObserver = null;
     if (this.domReadyHandler) {
@@ -335,6 +357,72 @@ export class ColumnPaginator {
     if (this.content) {
       this.layout(chapterChanged);
     }
+    this.scheduleReconnectPoll();
+  }
+
+  /**
+   * 故障取证：正文节点掉线（被站点渲染抛弃）与重绑成功各报一次，
+   * 供插件写入诊断日志——「页码残留 + 正文空白」的实锤时刻。
+   */
+  private reportAnomaly(detail: string): void {
+    if (this.anomalyNotified === detail) return;
+    this.anomalyNotified = detail;
+    this.onAnomaly?.(detail);
+  }
+
+  /**
+   * 完整性轮询（enable 期间常驻，400ms 一次）：断连自愈 + self 模式类守护。
+   *
+   * 断连：正文节点被站点渲染抛弃（SPA 重渲染替换节点），重查选择器重绑。
+   * 丢类：站点框架按自己的类模板重写 className（如 hydration/主题切换），
+   * 视口类被整体抹掉——元素未替换、isConnected 恒真，断连自愈永远不触发，
+   * 表现为「分页器自认为在岗（body 类还在）而正文单列」（2026-10-25 实证）。
+   * 即时修复靠 bindContent 挂的 class 属性观察器，此轮询是兜底与取证。
+   * 停止条件 = disable（clearTimers）。单次 classList/isConnected 检查开销可忽略。
+   */
+  private scheduleReconnectPoll(): void {
+    if (!this.enabled) {
+      this.clearReconnectTimer();
+      return;
+    }
+    if (this.reconnectTimer !== null) return;
+    this.reconnectTimer = setInterval(() => {
+      if (!this.enabled) {
+        this.clearReconnectTimer();
+        return;
+      }
+      this.verifyContentIntegrity();
+    }, 400);
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer !== null) {
+      clearInterval(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  private verifyContentIntegrity(): void {
+    const content = this.content;
+    if (!content?.isConnected) {
+      this.reportAnomaly('content-disconnected');
+      this.refreshContent();
+      return;
+    }
+    if (this.bindMode !== 'self') return;
+    if (content.classList.contains(this.viewportClass)) return;
+    this.reportAnomaly('viewport-class-lost');
+    this.restoreViewportClass(content);
+    if (this.anomalyNotified === 'viewport-class-lost') {
+      this.onAnomaly?.('rebound');
+      this.anomalyNotified = '';
+    }
+  }
+
+  /** 补回视口类并重排；下一帧测量（等类样式生效后 scrollWidth 才反映分栏）。 */
+  private restoreViewportClass(content: HTMLElement): void {
+    content.classList.add(this.viewportClass);
+    window.requestAnimationFrame(() => this.layout(false));
   }
 
   private scheduleLayout(): void {
@@ -403,20 +491,58 @@ export class ColumnPaginator {
   }
 
   private bindContent(content: HTMLElement | null): void {
-    const parent = content?.parentNode;
-    if (!content || !parent) return;
-    const viewport = document.createElement('div');
-    viewport.className = this.viewportClass;
-    parent.insertBefore(viewport, content);
-    viewport.append(content);
-    this.viewport = viewport;
-    this.content = content;
+    if (!content) return;
+    if (this.bindMode === 'self') {
+      // 不插不挪：视口类直接挂到正文自身（视口 = 正文，站点 DOM 零改动）
+      content.classList.add(this.viewportClass);
+      this.viewport = content;
+      this.content = content;
+      this.watchContentClasses(content);
+    } else {
+      const parent = content.parentNode;
+      if (!parent) return;
+      const viewport = document.createElement('div');
+      viewport.className = this.viewportClass;
+      parent.insertBefore(viewport, content);
+      viewport.append(content);
+      this.viewport = viewport;
+      this.content = content;
+    }
+    if (this.anomalyNotified === 'content-disconnected') this.onAnomaly?.('rebound');
+    this.anomalyNotified = '';
+  }
+
+  /**
+   * self 模式专用：盯正文 class 属性。站点框架重渲染时按自己的模板重写
+   * className 会把视口类一并抹掉，等 400ms 轮询兜底会闪一帧单列——这里
+   * 同帧补回。补类本身也会触发本观察器（class 已含视口类，空转返回）。
+   */
+  private watchContentClasses(content: HTMLElement): void {
+    this.contentAttrObserver?.disconnect();
+    this.contentAttrObserver = new MutationObserver(() => {
+      if (!this.enabled || this.content !== content || !content.isConnected) return;
+      if (content.classList.contains(this.viewportClass)) return;
+      this.reportAnomaly('viewport-class-lost');
+      this.restoreViewportClass(content);
+    });
+    this.contentAttrObserver.observe(content, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
   }
 
   private resetContent(): void {
     if (!this.content) return;
+    this.contentAttrObserver?.disconnect();
+    this.contentAttrObserver = null;
     this.content.style.removeProperty('--atreader-page-offset');
     this.content.style.removeProperty('visibility');
+    if (this.bindMode === 'self') {
+      this.content.classList.remove(this.viewportClass);
+      this.viewport = null;
+      this.content = null;
+      return;
+    }
     this.viewport?.style.removeProperty('--atreader-page-height');
     if (this.viewport?.parentNode && this.content.parentNode === this.viewport) {
       this.viewport.parentNode.insertBefore(this.content, this.viewport);
@@ -440,8 +566,10 @@ export class ColumnPaginator {
   private clearTimers(): void {
     if (this.resizeTimer) clearTimeout(this.resizeTimer);
     if (this.mutationTimer) clearTimeout(this.mutationTimer);
+    if (this.reconnectTimer !== null) clearInterval(this.reconnectTimer);
     this.resizeTimer = null;
     this.mutationTimer = null;
+    this.reconnectTimer = null;
     this.pendingMutations = [];
   }
 }

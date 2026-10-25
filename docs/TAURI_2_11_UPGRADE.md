@@ -33,7 +33,7 @@
 
 保留 `withGlobalTauri: true` 兼容现有页面脚本；安全边界由 Capability 和命令内部校验共同承担。
 
-## 当前 41 个命令
+## 当前 42 个命令
 
 ### main-runtime
 
@@ -48,6 +48,7 @@
 - `switch_bookstore_by_index`
 - `get_bookstore_list`（书城切换浮层数据源，同时授权 local-reader）
 - `apply_site_zoom`
+- `ensure_font_cache`（字体磁盘缓存：Rust 侧下载白名单 CDN 字体落盘，文件字节经 IPC 以 base64 直供页面 FontFace 注册——WebKit 页面字体网络路径不可靠，零网络直供是唯一可靠通道；仅 main-runtime）
 - `get_app_name`
 - `get_settings`
 - `patch_settings`

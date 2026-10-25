@@ -32,6 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "switch_bookstore_by_index",
             "get_bookstore_list",
             "apply_site_zoom",
+            "ensure_font_cache",
             "get_app_name",
             "get_app_version",
             "install_plugin",

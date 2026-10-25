@@ -340,6 +340,7 @@ describe('Tauri application contracts', () => {
       'allow-switch-bookstore-by-index',
       'allow-get-bookstore-list',
       'allow-apply-site-zoom',
+      'allow-ensure-font-cache',
       'allow-get-app-name',
       'allow-get-settings',
       'allow-patch-settings',

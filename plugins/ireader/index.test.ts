@@ -236,8 +236,10 @@ describe('IreaderPlugin', () => {
     const panel = document.querySelector('.atreader-ireader-font-panel');
     expect(panel).not.toBeNull();
 
-    // 默认档：28px + 中（506L_pua），样式在面板打开前就已注入
+    // 默认档：28px + 中（506L_pua），样式在面板打开前就已注入；
+    // 无 Tauri 环境（测试）走远程 URL 回退，@font-face 引用远程字体
     expect(injectedCss.get('font')).toContain('font-size: 28px');
+    expect(injectedCss.get('font')).toContain("font-family: 'FZYouH Mid', FZYouH, sans-serif");
     expect(injectedCss.get('font')).toContain('FZYouH_506L_pua.ttf');
     expect(storage.get('font-weight-index')).toBeUndefined();
 
@@ -356,6 +358,7 @@ describe('IreaderPlugin', () => {
     expect(storage.get('font-weight-index')).toBe(1);
     expect(storage.get('font-prefs-version')).toBe(2);
     expect(injectedCss.get('font')).toContain('font-size: 28px');
+    expect(injectedCss.get('font')).toContain("font-family: 'FZYouH Mid', FZYouH, sans-serif");
     expect(injectedCss.get('font')).toContain('FZYouH_506L_pua.ttf');
     plugin.onUnload();
   });

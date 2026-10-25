@@ -349,6 +349,22 @@ Toast 由应用壳统一渲染，所有插件使用相同样式；插件不应�
 
 窗口宽高变化后，优先按比例恢复位置，不要只保存绝对像素或页码；横屏与竖屏的总页数可能不同。
 
+### 诊断日志必须走 logToFile
+
+`api.log` 是 console-only 实现（见 `src/scripts/core/logger.ts`），**从不写入
+日志文件**；排查问题唯一可用的痕迹是 `艾特阅读.log`。插件诊断一律用
+`logToFile`（`src/scripts/core/tauri.ts`），并带 `[插件ID]` 前缀：
+
+```ts
+import { logToFile } from '../../src/scripts/core/tauri';
+logToFile(`[Qimao] theme guard reasserted data-theme=dark`);
+```
+
+`api.log` 仅适合无取证价值的常规流水（如 loaded/unloaded）。
+
+采样类诊断必须**失败触发**（如「进页 5 秒仍无正文才采样一次」）：健康加载
+零输出，日志只记录事件与异常——修复动作、看门狗、守卫、失败回退各自落一行。
+
 ## 9. 番茄插件实践经验
 
 下面这些问题在真实网站适配中已经出现过，值得直接复用。
